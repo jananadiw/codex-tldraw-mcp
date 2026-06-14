@@ -1,0 +1,13 @@
+node_modules/
+dist/
+.DS_Store
+.env
+.env.*
+*.tgz
+
+package-lock.json
+boards/*.tmp
+boards/*.tldr
+!boards/.gitkeep
+
+context/
