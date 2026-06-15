@@ -5,7 +5,7 @@
   "type": "module",
   "packageManager": "bun@1.3.14",
   "bin": {
-    "codex-tldraw-mcp": "./dist/index.js"
+    "codex-tldraw-mcp": "dist/index.js"
   },
   "main": "dist/index.js",
   "files": [

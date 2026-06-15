@@ -4,6 +4,14 @@ A Codex stdio MCP server that generates simple tldraw product workflow diagrams 
 
 This project is snapshot-only. It does not control a live browser canvas or provide live collaboration. It writes board files to the repository being diagrammed so a tldraw-compatible viewer can open them later.
 
+## Why This Exists
+
+The official tldraw MCP App is designed for hosts that can render an interactive tldraw canvas inside the chat context. In Codex Desktop, tool discovery worked in testing, and the tldraw `search` tool returned Editor API details, shape types, and helpers. The live `exec` path did not work: every call timed out after 30 seconds, including a read-only call to count the current page shapes.
+
+That failure mode suggested a host compatibility gap, not a tldraw file format problem. Codex can reliably call local stdio MCP tools and inspect generated files, but it does not currently provide the same embedded interactive MCP App canvas path used by hosts such as Cursor.
+
+This server is the Codex-first fallback we decided to build. Instead of trying to drive a live canvas, it generates `.tldr` snapshots on disk through a normal stdio MCP tool call. The result is less interactive, but it works reliably in Codex and keeps the generated board with the repository it explains.
+
 ## Add To Codex
 
 ```bash
