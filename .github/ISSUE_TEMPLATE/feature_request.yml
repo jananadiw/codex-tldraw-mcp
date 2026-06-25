@@ -1,0 +1,31 @@
+name: Feature request
+description: Suggest an improvement to generated diagrams, scanning, or MCP ergonomics.
+title: "[Feature]: "
+labels:
+  - enhancement
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What user problem should this solve?
+      placeholder: "When a PM and engineer look at the generated board, they still cannot tell..."
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: What should codex-tldraw-mcp do differently?
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Any simpler workaround, manual process, or existing tool you tried.
+  - type: textarea
+    id: example
+    attributes:
+      label: Example repo or workflow
+      description: Share a public repo, sanitized file tree, or short product workflow that would benefit.

@@ -1,0 +1,37 @@
+name: Feedback or showcase
+description: Share how codex-tldraw-mcp worked on a real repo.
+title: "[Feedback]: "
+labels:
+  - feedback
+body:
+  - type: dropdown
+    id: outcome
+    attributes:
+      label: Outcome
+      options:
+        - It helped explain the repo
+        - It was partly useful
+        - It missed the important workflow
+        - It failed to generate or open a board
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: Repo context
+      description: What kind of project did you try it on? Avoid private details.
+      placeholder: "Next.js app, internal dashboard, CLI tool, monorepo, etc."
+    validations:
+      required: true
+  - type: textarea
+    id: result
+    attributes:
+      label: Generated result
+      description: What did the board get right or wrong?
+    validations:
+      required: true
+  - type: textarea
+    id: next
+    attributes:
+      label: What would make it more useful?
+      description: Especially note what would help a PM and engineer align on a messy codebase.

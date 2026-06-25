@@ -1,59 +1,58 @@
 # codex-tldraw-mcp
 
-A Codex stdio MCP server that generates simple tldraw product workflow diagrams as `.tldr` files.
+[![npm version](https://img.shields.io/npm/v/codex-tldraw-mcp.svg)](https://www.npmjs.com/package/codex-tldraw-mcp)
+[![CI](https://github.com/jananadiw/codex-tldraw-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/jananadiw/codex-tldraw-mcp/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-This project is snapshot-only. It does not control a live browser canvas or provide live collaboration. It writes board files to the repository being diagrammed so a tldraw-compatible viewer can open them later.
+A Codex stdio MCP server that turns a local repository into a tldraw product workflow diagram saved as a `.tldr` snapshot.
 
-<img width="960" height="580" alt="tldraw MCP GIF" src="https://github.com/user-attachments/assets/27f27812-3b60-4461-8523-c87019fd8ec4" />
+![codex-tldraw-mcp demo](assets/tldrawmcp.gif)
 
+## Quick Start
 
-## Why This Exists
-
-The official tldraw MCP App is designed for hosts that can render an interactive tldraw canvas inside the chat context. In Codex Desktop, tool discovery worked in testing, and the tldraw `search` tool returned Editor API details, shape types, and helpers. The live `exec` path did not work: every call timed out after 30 seconds, including a read-only call to count the current page shapes.
-
-That failure mode suggested a host compatibility gap, not a tldraw file format problem. Codex can reliably call local stdio MCP tools and inspect generated files, but it does not currently provide the same embedded interactive MCP App canvas path used by hosts such as Cursor.
-
-This server is the Codex-first fallback we decided to build. Instead of trying to drive a live canvas, it generates `.tldr` snapshots on disk through a normal stdio MCP tool call. The result is less interactive, but it works reliably in Codex and keeps the generated board with the repository it explains.
-
-## Add To Codex
+Add the server to Codex:
 
 ```bash
 codex mcp add codex-tldraw -- npx -y codex-tldraw-mcp
 ```
 
-Then ask Codex to use `codex-tldraw` and call `diagram_repo`.
-
-Example prompt:
+Then ask Codex to diagram the current repo:
 
 ```text
 Use codex-tldraw to diagram this repo.
 ```
 
-For manual Codex stdio MCP configuration:
+The default output is:
+
+```text
+<repo>/boards/main.tldr
+```
+
+Open the generated board in a tldraw-compatible viewer.
+
+## What You Get
+
+- A repo-local `.tldr` board that stays with the project it explains.
+- A user-facing product workflow inferred from package metadata and source text.
+- tldraw steps and arrows laid out left to right.
+- Non-destructive updates: existing boards get the next diagram appended to the right.
+- MCP resources for listing boards and reading board summaries.
+
+For a handwriting font app, the workflow may be inferred as:
+
+```text
+User writes alphabet on paper -> User takes a photo of the paper -> User uploads the image -> AI generates a font -> User downloads a .ttf file
+```
+
+## Manual Configuration
+
+If you prefer editing Codex MCP config directly:
 
 ```toml
 [mcp_servers.codex-tldraw]
 command = "npx"
 args = ["-y", "codex-tldraw-mcp"]
 ```
-
-## What It Does
-
-- Scans a local repo from package metadata and source text.
-- Infers a simple user-facing product workflow.
-- Draws that workflow as tldraw steps and arrows.
-- Appends a new diagram to the right when the board already contains shapes.
-- Exposes board summaries as MCP resources.
-
-## Output
-
-The default board is:
-
-```text
-<repo>/boards/main.tldr
-```
-
-If `main.tldr` is empty or missing, `diagram_repo` creates the first diagram near the canvas origin. If it already has shapes, `diagram_repo` appends the next diagram to the right of the existing content instead of clearing the board.
 
 ## Tools
 
@@ -64,6 +63,26 @@ If `main.tldr` is empty or missing, `diagram_repo` creates the first diagram nea
 Each tool accepts an optional `repoPath`. Relative paths are resolved from the MCP server working directory.
 
 Board resources list and read boards from the most recent `repoPath` used by a tool call. Before any tool call, resources default to the MCP server working directory.
+
+## Feedback
+
+This project is early and feedback is useful. Please open an issue if:
+
+- The generated workflow misses the real product flow.
+- A board does not open in your tldraw-compatible viewer.
+- You have a messy repo where a PM and engineer need a clearer shared map.
+
+Use the GitHub issue templates for bugs, feature requests, and real-world examples.
+
+## Why This Exists
+
+This project is snapshot-only. It does not control a live browser canvas or provide live collaboration. It writes board files to the repository being diagrammed so a tldraw-compatible viewer can open them later.
+
+The official tldraw MCP App is designed for hosts that can render an interactive tldraw canvas inside the chat context. In Codex Desktop, tool discovery worked in testing, and the tldraw `search` tool returned Editor API details, shape types, and helpers. The live `exec` path did not work: every call timed out after 30 seconds, including a read-only call to count the current page shapes.
+
+That failure mode suggested a host compatibility gap, not a tldraw file format problem. Codex can reliably call local stdio MCP tools and inspect generated files, but it does not currently provide the same embedded interactive MCP App canvas path used by hosts such as Cursor.
+
+This server is the Codex-first fallback. Instead of trying to drive a live canvas, it generates `.tldr` snapshots on disk through a normal stdio MCP tool call. The result is less interactive, but it works reliably in Codex and keeps the generated board with the repository it explains.
 
 ## Security
 
@@ -118,8 +137,20 @@ bun publish --dry-run
 bun publish --access public
 ```
 
-For a handwriting font app, the workflow may be inferred as:
+The package includes MCP Registry metadata:
 
-```text
-User writes alphabet on paper -> User takes a photo of the paper -> User uploads the image -> AI generates a font -> User downloads a .ttf file
+- `package.json` declares `mcpName`.
+- `server.json` describes the npm stdio package.
+
+After the npm package version is published, authenticate and publish the registry metadata:
+
+```bash
+mcp-publisher login github
+mcp-publisher publish
+```
+
+Verify the registry entry:
+
+```bash
+curl "https://registry.modelcontextprotocol.io/v0.1/servers?search=io.github.jananadiw/codex-tldraw-mcp"
 ```
