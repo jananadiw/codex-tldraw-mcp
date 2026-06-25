@@ -14,6 +14,7 @@
     "assets/tldrawmcp.gif",
     "CHANGELOG.md",
     "dist",
+    "docs/npm-publishing.md",
     "docs/release-v0.1.1.md",
     "README.md",
     "LICENSE",

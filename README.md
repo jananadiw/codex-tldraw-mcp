@@ -127,14 +127,16 @@ args = ["/absolute/path/to/codex-tldraw-mcp/dist/index.js"]
 
 ## Publish
 
-Build, test, inspect the package contents, then publish:
+Automated npm publishing is documented in [`docs/npm-publishing.md`](docs/npm-publishing.md).
+
+For a manual release fallback, build, test, inspect the package contents, then publish:
 
 ```bash
 bun install
 bun run build
 bun run smoke
-bun publish --dry-run
-bun publish --access public
+npm publish --access public --dry-run
+npm publish --access public
 ```
 
 The package includes MCP Registry metadata:
