@@ -4,7 +4,7 @@
 [![CI](https://github.com/jananadiw/codex-tldraw-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/jananadiw/codex-tldraw-mcp/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-A Codex stdio MCP server that turns a local repository into a tldraw product workflow diagram saved as a `.tldr` snapshot.
+A Codex stdio MCP server that turns local repository context or a prompt-provided plan into a tldraw diagram saved as a `.tldr` snapshot.
 
 ![codex-tldraw-mcp demo](assets/tldrawmcp.gif)
 
@@ -22,6 +22,12 @@ Then ask Codex to diagram the current repo:
 Use codex-tldraw to diagram this repo.
 ```
 
+Or ask for a diagram directly:
+
+```text
+Use codex-tldraw to draw a password reset state machine.
+```
+
 The default output is:
 
 ```text
@@ -34,6 +40,7 @@ Open the generated board in a tldraw-compatible viewer.
 
 - A repo-local `.tldr` board that stays with the project it explains.
 - A user-facing product workflow inferred from package metadata and source text.
+- A prompt-driven offline canvas API for drawing workflows, state machines, plans, and architecture sketches that are not tied to repo scanning.
 - tldraw steps and arrows laid out left to right.
 - Non-destructive updates: existing boards get the next diagram appended to the right.
 - MCP resources for listing boards and reading board summaries.
@@ -57,12 +64,34 @@ args = ["-y", "codex-tldraw-mcp"]
 ## Tools
 
 - `diagram_repo`: scans a repo and appends a product workflow diagram to `<repo>/boards/<boardName>.tldr`.
+- `draw_canvas`: appends a prompt-provided workflow, state machine, architecture sketch, or plan to `<repo>/boards/<boardName>.tldr`.
 - `list_boards`: lists boards under a repo's `boards/` directory.
 - `read_board_summary`: summarizes generated diagrams and shape counts.
 
 Each tool accepts an optional `repoPath`. Relative paths are resolved from the MCP server working directory.
 
 Board resources list and read boards from the most recent `repoPath` used by a tool call. Before any tool call, resources default to the MCP server working directory.
+
+### Prompt-Driven Diagrams
+
+`draw_canvas` does not scan source files. The current repository is only the storage location for the generated board.
+
+Example prompts:
+
+```text
+Use codex-tldraw to draw the auth flow:
+Visitor opens login -> chooses email or SSO -> completes MFA -> lands in dashboard.
+```
+
+```text
+Use codex-tldraw to make a state machine for password reset:
+Idle -> Reset requested -> Email sent -> Token verified -> Password updated.
+```
+
+```text
+Use codex-tldraw to append an architecture diagram for this plan:
+Web app calls API gateway, API gateway calls worker queue, worker writes generated files to object storage.
+```
 
 ## Feedback
 
@@ -127,9 +156,7 @@ args = ["/absolute/path/to/codex-tldraw-mcp/dist/index.js"]
 
 ## Publish
 
-Automated npm publishing is documented in [`docs/npm-publishing.md`](docs/npm-publishing.md).
-
-For a manual release fallback, build, test, inspect the package contents, then publish:
+Build, test, inspect the package contents, then publish:
 
 ```bash
 bun install

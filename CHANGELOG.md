@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.2.0
+
+- Added `draw_canvas`, an offline canvas API for prompt-provided tldraw diagrams that do not require repo scanning.
+- Added prompt workflow normalization with generated step ids, duplicate-id checks, sequential default arrows, and connection validation.
+- Extended smoke coverage for prompt-driven diagrams and invalid connection references.
+- Updated README examples for repo-inferred and prompt-driven diagrams.
+- Added release notes for the offline canvas API update.
+
 ## 0.1.1
 
 - Added npm discovery metadata for repository, homepage, issues, and broader MCP search terms.
