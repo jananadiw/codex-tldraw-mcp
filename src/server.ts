@@ -4,6 +4,7 @@ import fs from 'node:fs/promises'
 import path from 'node:path'
 import { appendWorkflowDiagram, listBoardNames, loadBoard, saveBoard, summarizeBoard } from './tldrawBoard.js'
 import { boardPath, normalizeBoardName, workspaceRoot } from './paths.js'
+import { buildPromptWorkflow } from './promptWorkflow.js'
 import { scanRepo } from './repoScanner.js'
 
 const repoPathInput = z
@@ -17,6 +18,36 @@ const diagramRepoInput = {
     .string()
     .optional()
     .describe('Board name under the target repository boards directory. Defaults to "main".'),
+}
+
+const diagramStepInput = z.object({
+  id: z
+    .string()
+    .regex(/^[a-zA-Z0-9._-]+$/, 'Step id must contain only letters, numbers, dots, underscores, or dashes.')
+    .optional()
+    .describe('Stable step id used by connections. If omitted, one is generated from the label.'),
+  label: z.string().min(1).describe('Short label shown inside the tldraw step shape.'),
+  detail: z.string().optional().describe('Optional second line of detail shown below the label.'),
+})
+
+const diagramConnectionInput = z.object({
+  from: z.string().min(1).describe('Source step id.'),
+  to: z.string().min(1).describe('Target step id.'),
+  label: z.string().optional().describe('Optional label shown on the arrow.'),
+})
+
+const drawCanvasInput = {
+  repoPath: repoPathInput,
+  boardName: z
+    .string()
+    .optional()
+    .describe('Board name under the target repository boards directory. Defaults to "main".'),
+  title: z.string().min(1).describe('Diagram title shown above the generated tldraw shapes.'),
+  steps: z.array(diagramStepInput).min(1).describe('Ordered steps, states, screens, or architecture nodes to draw.'),
+  connections: z
+    .array(diagramConnectionInput)
+    .optional()
+    .describe('Arrows between steps. If omitted, steps are connected sequentially from left to right.'),
 }
 
 export function createServer() {
@@ -35,11 +66,11 @@ export function createServer() {
   const server = new McpServer(
     {
       name: 'codex-tldraw-mcp',
-      version: '0.1.1',
+      version: '0.2.0',
     },
     {
       instructions:
-        'Use diagram_repo to create a simple product workflow diagram in a tldraw .tldr board. If the board already has shapes, the server appends the new diagram to the right instead of clearing the canvas.',
+        'Use diagram_repo to infer a product workflow from a repository. Use draw_canvas when the user describes a workflow, state machine, architecture, or plan directly. Both tools write tldraw .tldr boards and append new diagrams to the right instead of clearing the canvas.',
     }
   )
 
@@ -80,6 +111,49 @@ export function createServer() {
           {
             type: 'text',
             text: `Created ${diagram.appended ? 'a new appended' : 'an initial'} tldraw product workflow diagram for ${workflow.repoName} on board "${normalizedBoardName}". File: ${writtenPath}`,
+          },
+        ],
+      }
+    }
+  )
+
+  server.registerTool(
+    'draw_canvas',
+    {
+      title: 'Draw prompt-provided diagram',
+      description:
+        'Appends a prompt-provided workflow, state machine, architecture sketch, or plan to a tldraw board without scanning repository source.',
+      inputSchema: drawCanvasInput,
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+      },
+    },
+    async ({ repoPath = workspaceRoot(), boardName = 'main', title, steps, connections }) => {
+      const resolvedRepoPath = await resolveToolRepoPath(repoPath)
+      const normalizedBoardName = normalizeBoardName(boardName)
+      const workflow = buildPromptWorkflow(title, resolvedRepoPath, steps, connections)
+      const store = await loadBoard(normalizedBoardName, resolvedRepoPath)
+      const diagram = appendWorkflowDiagram(store, workflow)
+      const writtenPath = await saveBoard(normalizedBoardName, store, resolvedRepoPath)
+      const result = {
+        boardName: normalizedBoardName,
+        boardPath: writtenPath,
+        repoPath: resolvedRepoPath,
+        diagramId: diagram.diagramId,
+        stepCount: workflow.steps.length,
+        connectionCount: workflow.connections.length,
+        shapeCount: diagram.shapeCount,
+        appended: diagram.appended,
+      }
+
+      return {
+        structuredContent: result as unknown as Record<string, unknown>,
+        content: [
+          {
+            type: 'text',
+            text: `Created ${diagram.appended ? 'a new appended' : 'an initial'} tldraw diagram "${workflow.repoName}" on board "${normalizedBoardName}". File: ${writtenPath}`,
           },
         ],
       }

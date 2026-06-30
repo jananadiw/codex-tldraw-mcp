@@ -6,8 +6,7 @@ dist/
 *.tgz
 
 package-lock.json
-boards/*.tmp
-boards/*.tldr
-!boards/.gitkeep
+boards/
 
 context/
+docs/npm-publishing.md
