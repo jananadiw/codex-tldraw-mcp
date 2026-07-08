@@ -66,7 +66,7 @@ export function createServer() {
   const server = new McpServer(
     {
       name: 'codex-tldraw-mcp',
-      version: '0.2.0',
+      version: '0.2.1',
     },
     {
       instructions:

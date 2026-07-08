@@ -27,12 +27,20 @@ type TldrawFile = {
 }
 
 type Bounds = { minX: number; minY: number; maxX: number; maxY: number }
+type StepLayout = { x: number; y: number; w: number; h: number; row: number }
 
 const PAGE_ID = PageRecordType.createId('page')
 const DIAGRAM_GAP = 260
-const STEP_W = 260
-const STEP_H = 116
-const STEP_GAP = 110
+const STEP_MIN_W = 280
+const STEP_MAX_W = 380
+const STEP_MIN_H = 120
+const STEP_GAP_X = 120
+const STEP_GAP_Y = 96
+const STEP_COLUMNS = 4
+const SINGLE_ROW_STEP_LIMIT = 6
+const STEP_TEXT_LINE_HEIGHT = 24
+const STEP_TEXT_PADDING_Y = 52
+const STEP_TEXT_CHARS_PER_LINE = 34
 
 export async function listBoardNames(root?: string) {
   try {
@@ -182,9 +190,9 @@ function buildDiagramShapes(
       props: {
         color: 'black',
         size: 'xl',
-        font: 'draw',
+        font: 'sans',
         textAlign: 'start',
-        w: 620,
+        w: diagramWidth(workflow.steps.length),
         richText: toRichText(workflow.repoName),
         scale: 1,
         autoSize: false,
@@ -197,15 +205,14 @@ function buildDiagramShapes(
   for (const [stepIndex, workflowStep] of workflow.steps.entries()) {
     const position = positions.get(workflowStep.id)
     if (!position) continue
-    records.push(createStepShape(store, workflowStep, workflow, diagramId, position.x, position.y, stepIndex, index++))
+    records.push(createStepShape(store, workflowStep, workflow, diagramId, position, stepIndex, index++))
   }
 
   for (const connection of workflow.connections) {
     const from = positions.get(connection.from)
     const to = positions.get(connection.to)
     if (!from || !to) continue
-    const start = { x: from.x + STEP_W, y: from.y + STEP_H / 2 }
-    const end = { x: to.x, y: to.y + STEP_H / 2 }
+    const { start, end } = connectionPoints(from, to)
     records.push(
       store.schema.types.shape.create({
         id: createShapeId(`${diagramId}-arrow-${connection.from}-${connection.to}`),
@@ -223,7 +230,7 @@ function buildDiagramShapes(
           size: 'm',
           arrowheadStart: 'none',
           arrowheadEnd: 'arrow',
-          font: 'draw',
+          font: 'sans',
           start: { x: 0, y: 0 },
           end: { x: end.x - start.x, y: end.y - start.y },
           bend: 0,
@@ -245,8 +252,7 @@ function createStepShape(
   workflowStep: WorkflowStep,
   workflow: ProductWorkflow,
   diagramId: string,
-  x: number,
-  y: number,
+  layout: StepLayout,
   stepIndex: number,
   index: number
 ) {
@@ -256,21 +262,21 @@ function createStepShape(
     type: 'geo',
     parentId: PAGE_ID,
     index: indexKey(index),
-    x,
-    y,
+    x: layout.x,
+    y: layout.y,
     props: {
       geo: 'rectangle',
       dash: 'solid',
       url: '',
-      w: STEP_W,
-      h: STEP_H,
+      w: layout.w,
+      h: layout.h,
       growY: 0,
       scale: 1,
       labelColor: 'black',
       color: colorForStep(stepIndex),
       fill: 'semi',
       size: 'm',
-      font: 'draw',
+      font: 'sans',
       align: 'middle',
       verticalAlign: 'middle',
       richText: toRichText(body),
@@ -280,16 +286,83 @@ function createStepShape(
 }
 
 function layoutSteps(steps: WorkflowStep[], offsetX: number, offsetY: number) {
-  const positions = new Map<string, { x: number; y: number }>()
+  const positions = new Map<string, StepLayout>()
+  const rows: Array<{ steps: Array<{ step: WorkflowStep; size: { w: number; h: number } }>; height: number }> = []
+  const columns = columnsForStepCount(steps.length)
 
   steps.forEach((step, stepIndex) => {
-    positions.set(step.id, {
-      x: offsetX + stepIndex * (STEP_W + STEP_GAP),
-      y: offsetY,
+    const rowIndex = Math.floor(stepIndex / columns)
+    const row = rows[rowIndex] ?? { steps: [], height: 0 }
+    const size = measureStep(step)
+    row.steps.push({ step, size })
+    row.height = Math.max(row.height, size.h)
+    rows[rowIndex] = row
+  })
+
+  let y = offsetY
+  rows.forEach((row, rowIndex) => {
+    row.steps.forEach(({ step, size }, columnIndex) => {
+      positions.set(step.id, {
+        x: offsetX + columnIndex * (STEP_MAX_W + STEP_GAP_X),
+        y,
+        w: size.w,
+        h: size.h,
+        row: rowIndex,
+      })
     })
+    y += row.height + STEP_GAP_Y
   })
 
   return positions
+}
+
+function measureStep(step: WorkflowStep) {
+  const body = step.detail ? `${step.label}\n${step.detail}` : step.label
+  const longestWord = body.split(/\s+/).reduce((longest, word) => Math.max(longest, word.length), 0)
+  const w = clamp(STEP_MIN_W + Math.max(0, longestWord - 18) * 7, STEP_MIN_W, STEP_MAX_W)
+  const lineCount = estimateLineCount(body, STEP_TEXT_CHARS_PER_LINE)
+  return {
+    w,
+    h: Math.max(STEP_MIN_H, lineCount * STEP_TEXT_LINE_HEIGHT + STEP_TEXT_PADDING_Y),
+  }
+}
+
+function columnsForStepCount(stepCount: number) {
+  return stepCount <= SINGLE_ROW_STEP_LIMIT ? Math.max(1, stepCount) : STEP_COLUMNS
+}
+
+function diagramWidth(stepCount: number) {
+  const columns = columnsForStepCount(stepCount)
+  return columns * STEP_MAX_W + Math.max(0, columns - 1) * STEP_GAP_X
+}
+
+function estimateLineCount(text: string, charsPerLine: number) {
+  return text.split('\n').reduce((total, line) => total + Math.max(1, Math.ceil(line.trim().length / charsPerLine)), 0)
+}
+
+function connectionPoints(from: StepLayout, to: StepLayout) {
+  if (from.row !== to.row) {
+    return {
+      start: { x: from.x + from.w / 2, y: from.y + from.h },
+      end: { x: to.x + to.w / 2, y: to.y },
+    }
+  }
+
+  if (to.x < from.x) {
+    return {
+      start: { x: from.x, y: from.y + from.h / 2 },
+      end: { x: to.x + to.w, y: to.y + to.h / 2 },
+    }
+  }
+
+  return {
+    start: { x: from.x + from.w, y: from.y + from.h / 2 },
+    end: { x: to.x, y: to.y + to.h / 2 },
+  }
+}
+
+function clamp(value: number, min: number, max: number) {
+  return Math.max(min, Math.min(max, value))
 }
 
 function getShapeBounds(store: TLStore): Bounds | null {
@@ -297,17 +370,38 @@ function getShapeBounds(store: TLStore): Bounds | null {
   if (shapes.length === 0) return null
   return shapes.reduce<Bounds>(
     (bounds, shape) => {
-      const width = getShapeWidth(shape)
-      const height = getShapeHeight(shape)
+      const shapeBounds = getSingleShapeBounds(shape)
       return {
-        minX: Math.min(bounds.minX, shape.x),
-        minY: Math.min(bounds.minY, shape.y),
-        maxX: Math.max(bounds.maxX, shape.x + width),
-        maxY: Math.max(bounds.maxY, shape.y + height),
+        minX: Math.min(bounds.minX, shapeBounds.minX),
+        minY: Math.min(bounds.minY, shapeBounds.minY),
+        maxX: Math.max(bounds.maxX, shapeBounds.maxX),
+        maxY: Math.max(bounds.maxY, shapeBounds.maxY),
       }
     },
     { minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity }
   )
+}
+
+function getSingleShapeBounds(shape: TLShape): Bounds {
+  if (shape.type === 'arrow' && 'end' in shape.props) {
+    const endX = shape.x + shape.props.end.x
+    const endY = shape.y + shape.props.end.y
+    return {
+      minX: Math.min(shape.x, endX),
+      minY: Math.min(shape.y, endY),
+      maxX: Math.max(shape.x, endX),
+      maxY: Math.max(shape.y, endY),
+    }
+  }
+
+  const width = getShapeWidth(shape)
+  const height = getShapeHeight(shape)
+  return {
+    minX: shape.x,
+    minY: shape.y,
+    maxX: shape.x + width,
+    maxY: shape.y + height,
+  }
 }
 
 function getShapes(store: TLStore) {
@@ -317,13 +411,13 @@ function getShapes(store: TLStore) {
 function getShapeWidth(shape: TLShape) {
   if ('w' in shape.props && typeof shape.props.w === 'number') return shape.props.w
   if (shape.type === 'arrow' && 'end' in shape.props) return Math.max(1, Math.abs(shape.props.end.x))
-  return STEP_W
+  return STEP_MIN_W
 }
 
 function getShapeHeight(shape: TLShape) {
   if ('h' in shape.props && typeof shape.props.h === 'number') return shape.props.h
   if (shape.type === 'arrow' && 'end' in shape.props) return Math.max(1, Math.abs(shape.props.end.y))
-  return STEP_H
+  return STEP_MIN_H
 }
 
 function getShapeText(shape: TLShape) {
