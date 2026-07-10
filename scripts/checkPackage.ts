@@ -63,7 +63,8 @@ const pack = spawnSync('npm', ['pack', '--dry-run', '--json'], {
 if (pack.error) throw pack.error
 if (pack.status !== 0) throw new Error(`npm pack failed with exit code ${pack.status ?? 'unknown'}.`)
 
-const [result] = JSON.parse(pack.stdout) as PackResult[]
+const packOutput = JSON.parse(pack.stdout) as PackResult[] | Record<string, PackResult>
+const result = Array.isArray(packOutput) ? packOutput[0] : Object.values(packOutput)[0]
 if (!result) throw new Error('npm pack did not return package metadata.')
 if (result.name !== packageManifest.name || result.version !== packageManifest.version) {
   throw new Error(
