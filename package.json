@@ -1,6 +1,6 @@
 {
   "name": "codex-tldraw-mcp",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "mcpName": "io.github.jananadiw/codex-tldraw-mcp",
   "description": "A Codex stdio MCP server for generating tldraw product workflow diagrams.",
   "type": "module",
@@ -10,12 +10,11 @@
   },
   "main": "dist/index.js",
   "files": [
-    "assets/github-project-preview-minimal-under-1mb.jpg",
-    "assets/tldrawmcp.gif",
     "CHANGELOG.md",
     "dist",
     "docs/release-v0.1.1.md",
     "docs/release-v0.2.0.md",
+    "docs/release-v0.2.1.md",
     "README.md",
     "LICENSE",
     "SECURITY.md",
@@ -28,6 +27,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json && tsc -p tsconfig.check.json --noEmit",
     "dev": "bun src/index.ts",
+    "check:package": "bun scripts/checkPackage.ts",
     "smoke": "bun scripts/smoke.ts",
     "test": "bun run smoke",
     "prepack": "bun run build"

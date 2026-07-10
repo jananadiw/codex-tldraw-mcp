@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.2.1
+
+- Improved generated tldraw diagram readability with adaptive step sizing, wrapped layouts, and cleaner sans-serif labels.
+- Kept compact diagrams with six or fewer steps on one row to reduce unnecessary return arrows.
+- Updated arrow routing and board bounds calculations to use actual step dimensions.
+- Extended smoke coverage for long labels, wrapped rows, adaptive heights, and appended diagram spacing.
+- Reduced the npm package by keeping repository-hosted demo media out of the published tarball.
+- Added package-content validation and hardened npm publishing through GitHub OIDC trusted publishing.
+
 ## 0.2.0
 
 - Added `draw_canvas`, an offline canvas API for prompt-provided tldraw diagrams that do not require repo scanning.

@@ -6,7 +6,7 @@
 
 A Codex stdio MCP server that turns local repository context or a prompt-provided plan into a tldraw diagram saved as a `.tldr` snapshot.
 
-![codex-tldraw-mcp demo](assets/tldrawmcp.gif)
+![codex-tldraw-mcp demo](https://raw.githubusercontent.com/jananadiw/codex-tldraw-mcp/main/assets/tldrawmcp.gif)
 
 ## Quick Start
 
@@ -156,22 +156,25 @@ args = ["/absolute/path/to/codex-tldraw-mcp/dist/index.js"]
 
 ## Publish
 
-Build, test, inspect the package contents, then publish:
+Build, test, and inspect the package contents:
 
 ```bash
-bun install
+bun install --frozen-lockfile
 bun run build
 bun run smoke
-npm publish --access public --dry-run
-npm publish --access public
+bun run check:package
 ```
+
+Publishing is handled by `.github/workflows/publish-npm.yml` when a GitHub Release is published. The npm trusted publisher must allow `jananadiw/codex-tldraw-mcp`, workflow `publish-npm.yml`, with no GitHub environment and the publish action enabled. The workflow uses GitHub OIDC and does not require an npm token.
+
+Use the workflow's `dry_run` dispatch option to validate a release without publishing it.
 
 The package includes MCP Registry metadata:
 
 - `package.json` declares `mcpName`.
 - `server.json` describes the npm stdio package.
 
-After the npm package version is published, authenticate and publish the registry metadata:
+After the workflow publishes and the npm package version is available, authenticate and publish the registry metadata:
 
 ```bash
 mcp-publisher login github
