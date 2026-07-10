@@ -10,8 +10,6 @@
   },
   "main": "dist/index.js",
   "files": [
-    "assets/github-project-preview-minimal-under-1mb.jpg",
-    "assets/tldrawmcp.gif",
     "CHANGELOG.md",
     "dist",
     "docs/release-v0.1.1.md",
@@ -29,6 +27,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json && tsc -p tsconfig.check.json --noEmit",
     "dev": "bun src/index.ts",
+    "check:package": "bun scripts/checkPackage.ts",
     "smoke": "bun scripts/smoke.ts",
     "test": "bun run smoke",
     "prepack": "bun run build"

@@ -9,6 +9,8 @@ Diagram readability update for generated tldraw boards.
 - Wraps larger diagrams into rows while keeping compact diagrams with six or fewer steps on a single row.
 - Routes arrows from actual step bounds so resized boxes still connect cleanly.
 - Improves appended diagram spacing by calculating board bounds from real shape and arrow endpoints.
+- Keeps demo media on GitHub instead of shipping it in the npm tarball, substantially reducing install size.
+- Validates package contents and size before publishing through npm trusted publishing.
 
 ## Why This Matters
 
@@ -36,7 +38,8 @@ The generated board is written to:
 ```bash
 bun run build
 bun run smoke
-npm publish --access public --dry-run
+bun run check:package
+mcp-publisher validate
 ```
 
 ## Links

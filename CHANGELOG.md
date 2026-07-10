@@ -6,6 +6,8 @@
 - Kept compact diagrams with six or fewer steps on one row to reduce unnecessary return arrows.
 - Updated arrow routing and board bounds calculations to use actual step dimensions.
 - Extended smoke coverage for long labels, wrapped rows, adaptive heights, and appended diagram spacing.
+- Reduced the npm package by keeping repository-hosted demo media out of the published tarball.
+- Added package-content validation and hardened npm publishing through GitHub OIDC trusted publishing.
 
 ## 0.2.0
 

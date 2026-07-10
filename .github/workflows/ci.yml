@@ -31,3 +31,6 @@ jobs:
 
       - name: Smoke test
         run: bun run smoke
+
+      - name: Check package
+        run: bun run check:package
