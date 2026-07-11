@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.0
+
+- Wrapped node and connector text before rendering so labels stay readable.
+- Routed dense connections through separate lanes to avoid boxes and shared tracks.
+- Added smoke checks for text fit, connector collisions, and arrow direction.
+
 ## 0.2.1
 
 - Improved generated tldraw diagram readability with adaptive step sizing, wrapped layouts, and cleaner sans-serif labels.

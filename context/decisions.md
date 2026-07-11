@@ -63,6 +63,13 @@
 - Impact: Generated boards are taller but more readable, with arrow endpoints based on actual step bounds.
 - Revisit: Add a graph layout library if branching state machines need smarter routing than deterministic rows.
 
+## Reserved Connector Routing Lanes
+
+- Decision: Pre-wrap node text and route non-local connections through distinct row gutters and outer lanes using axis-aligned arrow segments.
+- Reason: Render-time text wrapping and shared elbow midpoints caused labels to escape boxes and dense workflow arrows to overlap or cross nodes.
+- Impact: Dense diagrams use more canvas space and a logical connection may contain multiple arrow shapes, but text remains contained and direction is shown by one final arrowhead.
+- Revisit: Replace deterministic lanes with a graph-routing library if diagrams need automatic crossing minimization or interactive edge editing.
+
 ## Optional Filesystem Allowlist
 
 - Decision: Support `TLDRAW_MCP_ALLOWED_ROOTS` to restrict readable and writable repository roots.
