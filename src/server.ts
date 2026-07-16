@@ -2,7 +2,18 @@ import { McpServer, ResourceTemplate } from '@modelcontextprotocol/sdk/server/mc
 import { z } from 'zod'
 import fs from 'node:fs/promises'
 import path from 'node:path'
-import { appendWorkflowDiagram, listBoardNames, loadBoard, saveBoard, summarizeBoard } from './tldrawBoard.js'
+import { compareCodeGraphs } from './codeGraphDrift.js'
+import { scanCodeGraph } from './codeGraphScanner.js'
+import {
+  appendCodeGraphDiagram,
+  appendWorkflowDiagram,
+  applyCodeGraphDrift,
+  listBoardNames,
+  loadBoard,
+  readStoredCodeGraph,
+  saveBoard,
+  summarizeBoard,
+} from './tldrawBoard.js'
 import { boardPath, normalizeBoardName, workspaceRoot } from './paths.js'
 import { buildPromptWorkflow } from './promptWorkflow.js'
 import { scanRepo } from './repoScanner.js'
@@ -18,6 +29,18 @@ const diagramRepoInput = {
     .string()
     .optional()
     .describe('Board name under the target repository boards directory. Defaults to "main".'),
+}
+
+const compareCodeGraphInput = {
+  ...diagramRepoInput,
+  diagramId: z
+    .string()
+    .optional()
+    .describe('Code graph diagram id to compare. Defaults to the newest trackable code graph on the board.'),
+  applyMarkers: z
+    .boolean()
+    .optional()
+    .describe('When true, marks changed elements orange and stale elements red. Defaults to a read-only preview.'),
 }
 
 const diagramStepInput = z.object({
@@ -66,11 +89,114 @@ export function createServer() {
   const server = new McpServer(
     {
       name: 'codex-tldraw-mcp',
-      version: '0.3.0',
+      version: '0.4.0',
     },
     {
       instructions:
-        'Use diagram_repo to infer a product workflow from a repository. Use draw_canvas when the user describes a workflow, state machine, architecture, or plan directly. Both tools write tldraw .tldr boards and append new diagrams to the right instead of clearing the canvas.',
+        'Use diagram_repo to infer a product workflow, draw_canvas for prompt-provided diagrams, diagram_code_graph for a trackable JavaScript or TypeScript module graph, and compare_code_graph to detect drift. Diagram tools append to tldraw .tldr boards instead of clearing the canvas.',
+    }
+  )
+
+  server.registerTool(
+    'diagram_code_graph',
+    {
+      title: 'Diagram trackable code graph',
+      description:
+        'Scans repository-local JavaScript and TypeScript modules and appends a trackable module/import graph to a tldraw board.',
+      inputSchema: diagramRepoInput,
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+      },
+    },
+    async ({ repoPath = workspaceRoot(), boardName = 'main' }) => {
+      const resolvedRepoPath = await resolveToolRepoPath(repoPath)
+      const normalizedBoardName = normalizeBoardName(boardName)
+      const graph = await scanCodeGraph(resolvedRepoPath)
+      if (graph.nodes.length === 0) {
+        throw new Error('No supported JavaScript or TypeScript modules were found in the repository.')
+      }
+      const store = await loadBoard(normalizedBoardName, resolvedRepoPath)
+      const diagram = appendCodeGraphDiagram(store, graph)
+      const writtenPath = await saveBoard(normalizedBoardName, store, resolvedRepoPath)
+      const result = {
+        boardName: normalizedBoardName,
+        boardPath: writtenPath,
+        repoPath: resolvedRepoPath,
+        diagramId: diagram.diagramId,
+        nodeCount: graph.nodes.length,
+        edgeCount: graph.edges.length,
+        externalImportCount: graph.externalImportCount,
+        unresolvedImports: graph.unresolvedImports,
+        shapeCount: diagram.shapeCount,
+        appended: diagram.appended,
+      }
+
+      return {
+        structuredContent: result as unknown as Record<string, unknown>,
+        content: [
+          {
+            type: 'text',
+            text: `Created a trackable code graph with ${graph.nodes.length} modules and ${graph.edges.length} local imports on board "${normalizedBoardName}". File: ${writtenPath}`,
+          },
+        ],
+      }
+    }
+  )
+
+  server.registerTool(
+    'compare_code_graph',
+    {
+      title: 'Compare code graph drift',
+      description:
+        'Compares the current JavaScript and TypeScript module graph with an existing trackable code graph. Preview is the default; applyMarkers updates only generated graph styling.',
+      inputSchema: compareCodeGraphInput,
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+      },
+    },
+    async ({
+      repoPath = workspaceRoot(),
+      boardName = 'main',
+      diagramId,
+      applyMarkers = false,
+    }) => {
+      const resolvedRepoPath = await resolveToolRepoPath(repoPath)
+      const normalizedBoardName = normalizeBoardName(boardName)
+      const graph = await scanCodeGraph(resolvedRepoPath)
+      const store = await loadBoard(normalizedBoardName, resolvedRepoPath)
+      const stored = readStoredCodeGraph(store, diagramId)
+      const drift = compareCodeGraphs(stored, graph)
+      const updatedShapeCount = applyMarkers ? applyCodeGraphDrift(store, drift) : 0
+      const writtenPath = boardPath(normalizedBoardName, resolvedRepoPath)
+      if (applyMarkers && updatedShapeCount > 0) {
+        await saveBoard(normalizedBoardName, store, resolvedRepoPath)
+      }
+      const result = {
+        boardName: normalizedBoardName,
+        boardPath: writtenPath,
+        repoPath: resolvedRepoPath,
+        diagramId: drift.diagramId,
+        applied: applyMarkers,
+        updatedShapeCount,
+        counts: drift.counts,
+        elements: drift.elements,
+        externalImportCount: graph.externalImportCount,
+        unresolvedImports: graph.unresolvedImports,
+      }
+
+      return {
+        structuredContent: result as unknown as Record<string, unknown>,
+        content: [
+          {
+            type: 'text',
+            text: `${applyMarkers ? 'Applied' : 'Previewed'} code graph drift for "${normalizedBoardName}": ${drift.counts.stale} stale, ${drift.counts.changed} changed, ${drift.counts.new} new, and ${drift.counts.unchanged} unchanged elements.`,
+          },
+        ],
+      }
     }
   )
 

@@ -18,7 +18,17 @@ import {
   toRichText,
 } from 'tldraw'
 import { boardPath, boardsDir } from './paths.js'
-import type { BoardSummary, ProductWorkflow, WorkflowConnection, WorkflowStep } from './types.js'
+import type {
+  BoardSummary,
+  CodeGraph,
+  CodeGraphDriftResult,
+  CodeGraphDriftStatus,
+  CodeGraphElementKind,
+  ProductWorkflow,
+  StoredCodeGraph,
+  WorkflowConnection,
+  WorkflowStep,
+} from './types.js'
 
 type TldrawFile = {
   tldrawFileFormatVersion: 1
@@ -29,6 +39,29 @@ type TldrawFile = {
 type Bounds = { minX: number; minY: number; maxX: number; maxY: number }
 type Point = { x: number; y: number }
 type StepLayout = { x: number; y: number; w: number; h: number; row: number; body: string }
+type ShapeMetadata = {
+  diagramId?: string
+  diagramType?: string
+  metadataVersion?: number
+  repoName?: string
+  repoPath?: string
+  kind?: string
+  elementKind?: CodeGraphElementKind
+  elementId?: string
+  fingerprint?: string
+  driftStatus?: CodeGraphDriftStatus
+  baseColor?: string
+  baseDash?: string
+}
+type DiagramMetadataFactory = {
+  title: () => Record<string, unknown>
+  step: (step: WorkflowStep, stepIndex: number) => Record<string, unknown>
+  connection: (
+    connection: WorkflowConnection,
+    connectionIndex: number,
+    routeMetadata: Record<string, unknown>
+  ) => Record<string, unknown>
+}
 
 const PAGE_ID = PageRecordType.createId('page')
 const DIAGRAM_GAP = 260
@@ -46,6 +79,7 @@ const CONNECTION_LABEL_CHARS_PER_LINE = 24
 const ROUTE_CLEARANCE = 32
 const ROUTE_LANE_GAP = 32
 const ROUTE_OUTER_GAP = 88
+const CODE_GRAPH_METADATA_VERSION = 1
 
 export async function listBoardNames(root?: string) {
   try {
@@ -93,7 +127,7 @@ export function appendWorkflowDiagram(store: TLStore, workflow: ProductWorkflow)
   const offsetX = existingBounds ? existingBounds.maxX + DIAGRAM_GAP : 0
   const offsetY = existingBounds ? existingBounds.minY : 0
   const diagramId = `workflow-${Date.now().toString(36)}`
-  const shapes = buildDiagramShapes(store, workflow, diagramId, offsetX, offsetY)
+  const shapes = buildDiagramShapes(store, workflow, diagramId, offsetX, offsetY, workflowMetadata(workflow, diagramId))
   store.put(shapes)
   return {
     diagramId,
@@ -102,11 +136,135 @@ export function appendWorkflowDiagram(store: TLStore, workflow: ProductWorkflow)
   }
 }
 
+export function appendCodeGraphDiagram(store: TLStore, graph: CodeGraph) {
+  const existingBounds = getShapeBounds(store)
+  const offsetX = existingBounds ? existingBounds.maxX + DIAGRAM_GAP : 0
+  const offsetY = existingBounds ? existingBounds.minY : 0
+  const diagramId = `code-graph-${Date.now().toString(36)}`
+  const workflow = codeGraphWorkflow(graph)
+  const shapes = buildDiagramShapes(store, workflow, diagramId, offsetX, offsetY, codeGraphMetadata(graph, diagramId))
+  store.put(shapes)
+  return {
+    diagramId,
+    shapeCount: shapes.length,
+    appended: Boolean(existingBounds),
+  }
+}
+
+export function readStoredCodeGraph(store: TLStore, requestedDiagramId?: string): StoredCodeGraph {
+  const shapes = getShapes(store)
+  const graphDiagramIds = shapes
+    .map(readShapeMeta)
+    .filter((meta): meta is ShapeMetadata & { diagramId: string } => Boolean(meta?.diagramId && meta.diagramType === 'code-graph'))
+    .map((meta) => meta.diagramId)
+  const diagramIds = [...new Set(graphDiagramIds)]
+
+  if (diagramIds.length === 0) {
+    throw new Error('This board has no trackable code graph. Create one with diagram_code_graph before comparing drift.')
+  }
+
+  const diagramId = requestedDiagramId ?? diagramIds.at(-1)
+  if (!diagramId || !diagramIds.includes(diagramId)) {
+    throw new Error(`Code graph diagram "${requestedDiagramId}" was not found on this board.`)
+  }
+
+  const elements = new Map<string, StoredCodeGraph['elements'][number]>()
+  for (const shape of shapes) {
+    const meta = readShapeMeta(shape)
+    if (meta?.diagramId !== diagramId || meta.diagramType !== 'code-graph') continue
+    if (meta.metadataVersion !== CODE_GRAPH_METADATA_VERSION) {
+      throw new Error(
+        `Code graph diagram "${diagramId}" uses unsupported metadata version ${meta.metadataVersion ?? 'missing'}.`
+      )
+    }
+    if (meta.kind === 'title') continue
+    if (!meta.elementKind || !meta.elementId || !meta.fingerprint) {
+      throw new Error(`Code graph diagram "${diagramId}" has incomplete metadata on shape ${shape.id}.`)
+    }
+    const element = { kind: meta.elementKind, id: meta.elementId, fingerprint: meta.fingerprint }
+    const key = `${element.kind}:${element.id}`
+    const existing = elements.get(key)
+    if (existing && existing.fingerprint !== element.fingerprint) {
+      throw new Error(`Code graph diagram "${diagramId}" has conflicting metadata for ${key}.`)
+    }
+    elements.set(key, element)
+  }
+
+  if (elements.size === 0) throw new Error(`Code graph diagram "${diagramId}" has no trackable elements.`)
+  return { diagramId, elements: [...elements.values()] }
+}
+
+export function applyCodeGraphDrift(store: TLStore, drift: CodeGraphDriftResult) {
+  const statuses = new Map<string, Exclude<CodeGraphDriftStatus, 'new'>>()
+  for (const element of drift.elements) {
+    if (element.status !== 'new') statuses.set(`${element.kind}:${element.id}`, element.status)
+  }
+  const updates: TLShape[] = []
+
+  for (const shape of getShapes(store)) {
+    const meta = readShapeMeta(shape)
+    if (
+      meta?.diagramId !== drift.diagramId ||
+      !meta.elementKind ||
+      !meta.elementId ||
+      !('color' in shape.props) ||
+      !('dash' in shape.props)
+    ) {
+      continue
+    }
+
+    const status = statuses.get(`${meta.elementKind}:${meta.elementId}`)
+    if (!status) continue
+    const currentColor = String(shape.props.color)
+    const currentDash = String(shape.props.dash)
+    const baseColor = meta.driftStatus === 'unchanged' ? currentColor : (meta.baseColor ?? currentColor)
+    const baseDash = meta.driftStatus === 'unchanged' ? currentDash : (meta.baseDash ?? currentDash)
+    const style = driftStyle(status, baseColor, baseDash)
+
+    if (
+      meta.driftStatus === status &&
+      meta.baseColor === baseColor &&
+      meta.baseDash === baseDash &&
+      currentColor === style.color &&
+      currentDash === style.dash
+    ) {
+      continue
+    }
+
+    updates.push({
+      ...shape,
+      props: { ...shape.props, color: style.color, dash: style.dash },
+      meta: {
+        ...shape.meta,
+        tldrawMcp: {
+          ...(shape.meta.tldrawMcp as Record<string, unknown>),
+          driftStatus: status,
+          baseColor,
+          baseDash,
+        },
+      },
+    } as TLShape)
+  }
+
+  if (updates.length > 0) store.put(updates)
+  return updates.length
+}
+
 export async function summarizeBoard(name = 'main', root?: string): Promise<BoardSummary> {
   const store = await loadBoard(name, root)
   const shapes = getShapes(store)
   const shapesByType: Record<string, number> = {}
-  const diagrams = new Map<string, { repoName?: string; repoPath?: string; labels: string[]; shapeCount: number }>()
+  const diagrams = new Map<
+    string,
+    {
+      repoName?: string
+      repoPath?: string
+      diagramType?: string
+      labels: string[]
+      shapeCount: number
+      driftElementStatuses: Map<string, CodeGraphDriftStatus>
+    }
+  >()
 
   for (const shape of shapes) {
     shapesByType[shape.type] = (shapesByType[shape.type] ?? 0) + 1
@@ -115,10 +273,15 @@ export async function summarizeBoard(name = 'main', root?: string): Promise<Boar
       const entry = diagrams.get(meta.diagramId) ?? {
         repoName: meta.repoName,
         repoPath: meta.repoPath,
-        labels: [],
+        diagramType: meta.diagramType,
+        labels: [] as string[],
         shapeCount: 0,
+        driftElementStatuses: new Map<string, CodeGraphDriftStatus>(),
       }
       entry.shapeCount += 1
+      if (meta.driftStatus && meta.elementId && meta.elementKind) {
+        entry.driftElementStatuses.set(`${meta.elementKind}:${meta.elementId}`, meta.driftStatus)
+      }
       const label = getShapeText(shape)
       if (label) entry.labels.push(label)
       diagrams.set(meta.diagramId, entry)
@@ -132,10 +295,12 @@ export async function summarizeBoard(name = 'main', root?: string): Promise<Boar
     shapesByType,
     diagrams: [...diagrams.entries()].map(([diagramId, entry]) => ({
       diagramId,
+      diagramType: entry.diagramType,
       repoName: entry.repoName,
       repoPath: entry.repoPath,
       shapeCount: entry.shapeCount,
       labels: entry.labels.slice(0, 20),
+      driftStatusCounts: summarizeDriftStatuses(entry.driftElementStatuses),
     })),
   }
 }
@@ -179,7 +344,8 @@ function buildDiagramShapes(
   workflow: ProductWorkflow,
   diagramId: string,
   offsetX: number,
-  offsetY: number
+  offsetY: number,
+  metadata: DiagramMetadataFactory
 ) {
   const records: TLShape[] = []
   let index = 1
@@ -202,7 +368,7 @@ function buildDiagramShapes(
         scale: 1,
         autoSize: false,
       },
-      meta: metaFor(workflow, diagramId, 'title', []),
+      meta: metadata.title(),
     }) as TLShape
   )
 
@@ -210,7 +376,7 @@ function buildDiagramShapes(
   for (const [stepIndex, workflowStep] of workflow.steps.entries()) {
     const position = positions.get(workflowStep.id)
     if (!position) continue
-    records.push(createStepShape(store, workflowStep, workflow, diagramId, position, stepIndex, index++))
+    records.push(createStepShape(store, workflowStep, diagramId, position, stepIndex, index++, metadata))
   }
 
   const routes = routeConnections(workflow.connections, positions)
@@ -250,7 +416,7 @@ function buildDiagramShapes(
             scale: 1,
             elbowMidPoint: 0.5,
           },
-          meta: metaFor(workflow, diagramId, 'connection', [], {
+          meta: metadata.connection(route.connection, route.connectionIndex, {
             connectionIndex: route.connectionIndex,
             segmentIndex,
             segmentCount: route.points.length - 1,
@@ -266,11 +432,11 @@ function buildDiagramShapes(
 function createStepShape(
   store: TLStore,
   workflowStep: WorkflowStep,
-  workflow: ProductWorkflow,
   diagramId: string,
   layout: StepLayout,
   stepIndex: number,
-  index: number
+  index: number,
+  metadata: DiagramMetadataFactory
 ) {
   return store.schema.types.shape.create({
     id: createShapeId(`${diagramId}-${workflowStep.id}`),
@@ -296,7 +462,7 @@ function createStepShape(
       verticalAlign: 'middle',
       richText: toRichText(layout.body),
     },
-    meta: metaFor(workflow, diagramId, 'step', workflowStep.evidence),
+    meta: metadata.step(workflowStep, stepIndex),
   }) as TLShape
 }
 
@@ -597,25 +763,105 @@ function richTextToPlainText(value: unknown): string {
 function readShapeMeta(shape: TLShape) {
   const meta = shape.meta?.tldrawMcp
   if (!meta || typeof meta !== 'object') return null
-  return meta as { diagramId?: string; repoName?: string; repoPath?: string }
+  return meta as ShapeMetadata
 }
 
-function metaFor(
-  workflow: ProductWorkflow,
-  diagramId: string,
-  kind: string,
-  evidence: string[],
-  extra: Record<string, unknown> = {}
-) {
+function workflowMetadata(workflow: ProductWorkflow, diagramId: string): DiagramMetadataFactory {
+  const meta = (kind: string, evidence: string[], extra: Record<string, unknown> = {}) => ({
+    tldrawMcp: { diagramId, repoName: workflow.repoName, kind, evidence, ...extra },
+  })
   return {
-    tldrawMcp: {
-      diagramId,
-      repoName: workflow.repoName,
-      kind,
-      evidence,
-      ...extra,
+    title: () => meta('title', []),
+    step: (step) => meta('step', step.evidence),
+    connection: (_connection, _connectionIndex, routeMetadata) => meta('connection', [], routeMetadata),
+  }
+}
+
+function codeGraphWorkflow(graph: CodeGraph): ProductWorkflow {
+  return {
+    repoName: `${graph.repoName} code graph`,
+    repoPath: graph.repoPath,
+    steps: graph.nodes.map((node) => ({
+      id: node.id,
+      label: node.label,
+      detail: node.localImportCount === 1 ? '1 local import' : `${node.localImportCount} local imports`,
+      evidence: [node.sourcePath],
+    })),
+    connections: graph.edges.map((edge) => ({
+      from: edge.from,
+      to: edge.to,
+      label: edge.kind === 'import' ? '' : edge.kind.replace('-', ' '),
+    })),
+  }
+}
+
+function codeGraphMetadata(graph: CodeGraph, diagramId: string): DiagramMetadataFactory {
+  const nodeById = new Map(graph.nodes.map((node) => [node.id, node]))
+  return {
+    title: () => ({
+      tldrawMcp: {
+        diagramId,
+        diagramType: 'code-graph',
+        metadataVersion: CODE_GRAPH_METADATA_VERSION,
+        repoName: graph.repoName,
+        kind: 'title',
+      },
+    }),
+    step: (step, stepIndex) => {
+      const node = nodeById.get(step.id)
+      if (!node) throw new Error(`Code graph node metadata is missing for ${step.id}.`)
+      return {
+        tldrawMcp: {
+          diagramId,
+          diagramType: 'code-graph',
+          metadataVersion: CODE_GRAPH_METADATA_VERSION,
+          repoName: graph.repoName,
+          kind: 'step',
+          elementKind: 'node',
+          elementId: node.id,
+          fingerprint: node.fingerprint,
+          sourcePaths: [node.sourcePath],
+          driftStatus: 'unchanged',
+          baseColor: colorForStep(stepIndex),
+          baseDash: 'solid',
+        },
+      }
+    },
+    connection: (_connection, connectionIndex, routeMetadata) => {
+      const edge = graph.edges[connectionIndex]
+      if (!edge) throw new Error(`Code graph edge metadata is missing at index ${connectionIndex}.`)
+      return {
+        tldrawMcp: {
+          diagramId,
+          diagramType: 'code-graph',
+          metadataVersion: CODE_GRAPH_METADATA_VERSION,
+          repoName: graph.repoName,
+          kind: 'connection',
+          elementKind: 'edge',
+          elementId: edge.id,
+          fingerprint: edge.fingerprint,
+          sourcePaths: [edge.from, edge.to],
+          driftStatus: 'unchanged',
+          baseColor: 'black',
+          baseDash: 'solid',
+          ...routeMetadata,
+        },
+      }
     },
   }
+}
+
+function driftStyle(status: Exclude<CodeGraphDriftStatus, 'new'>, baseColor: string, baseDash: string) {
+  if (status === 'stale') return { color: 'red', dash: 'dashed' }
+  if (status === 'changed') return { color: 'orange', dash: 'dashed' }
+  return { color: baseColor, dash: baseDash }
+}
+
+function summarizeDriftStatuses(statuses: Map<string, CodeGraphDriftStatus>) {
+  if (statuses.size === 0) return undefined
+  const counts: Partial<Record<CodeGraphDriftStatus, number>> = {}
+  for (const status of statuses.values()) counts[status] = (counts[status] ?? 0) + 1
+  return counts
 }
 
 function colorForStep(stepIndex: number) {

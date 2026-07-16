@@ -4,7 +4,7 @@
 [![CI](https://github.com/jananadiw/codex-tldraw-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/jananadiw/codex-tldraw-mcp/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-A Codex stdio MCP server that turns local repository context or a prompt-provided plan into a tldraw diagram saved as a `.tldr` snapshot.
+A Codex stdio MCP server that generates repo-local tldraw diagrams and checks trackable code graphs for drift.
 
 ![codex-tldraw-mcp demo](https://raw.githubusercontent.com/jananadiw/codex-tldraw-mcp/main/assets/tldrawmcp.gif)
 
@@ -28,6 +28,18 @@ Or ask for a diagram directly:
 Use codex-tldraw to draw a password reset state machine.
 ```
 
+Create a trackable JavaScript or TypeScript module graph:
+
+```text
+Use codex-tldraw to create a code graph for this repo.
+```
+
+After the code changes, compare it with the saved graph:
+
+```text
+Use codex-tldraw to preview code graph drift, then mark stale elements.
+```
+
 The default output is:
 
 ```text
@@ -41,6 +53,8 @@ Open the generated board in a tldraw-compatible viewer.
 - A repo-local `.tldr` board that stays with the project it explains.
 - A user-facing product workflow inferred from package metadata and source text.
 - A prompt-driven offline canvas API for drawing workflows, state machines, plans, and architecture sketches that are not tied to repo scanning.
+- A trackable JavaScript and TypeScript module/import graph with drift detection.
+- Red markers for stale nodes and edges, orange markers for changed modules, and a report of new elements.
 - tldraw steps and arrows laid out left to right.
 - Non-destructive updates: existing boards get the next diagram appended to the right.
 - MCP resources for listing boards and reading board summaries.
@@ -65,12 +79,37 @@ args = ["-y", "codex-tldraw-mcp"]
 
 - `diagram_repo`: scans a repo and appends a product workflow diagram to `<repo>/boards/<boardName>.tldr`.
 - `draw_canvas`: appends a prompt-provided workflow, state machine, architecture sketch, or plan to `<repo>/boards/<boardName>.tldr`.
+- `diagram_code_graph`: scans repository-local JavaScript and TypeScript modules and appends a trackable import graph.
+- `compare_code_graph`: previews drift or marks changed and stale elements on an existing trackable code graph.
 - `list_boards`: lists boards under a repo's `boards/` directory.
 - `read_board_summary`: summarizes generated diagrams and shape counts.
 
 Each tool accepts an optional `repoPath`. Relative paths are resolved from the MCP server working directory.
 
 Board resources list and read boards from the most recent `repoPath` used by a tool call. Before any tool call, resources default to the MCP server working directory.
+
+### Code Graph Drift
+
+`diagram_code_graph` stores stable repository-relative identities and fingerprints in MCP-owned shape metadata. Each source module becomes a node. Static imports, dynamic imports, re-exports, and CommonJS `require` calls between repository modules become edges.
+
+Run `compare_code_graph` after the repository changes. Preview mode is the default and does not write the board:
+
+```text
+Compare the current code with the newest code graph on boards/main.tldr.
+```
+
+To update the board, ask Codex to apply the drift markers or pass `applyMarkers: true`. The comparison uses four states:
+
+- `unchanged`: the stored identity and fingerprint still match.
+- `changed`: the module still exists, but its exports or local import relationships changed.
+- `stale`: the board contains an element that no longer exists in the current code graph.
+- `new`: the current graph contains an element that is absent from the board.
+
+Stale elements become red and dashed. Changed modules become orange and dashed. New elements appear in the tool result; v0.4.0 does not insert or rearrange them. Re-running the comparison restores the original generated style when code matches again.
+
+The comparison changes only MCP-generated graph styling and metadata. It preserves positions, sizes, labels, manual shapes, and other diagrams on the board, and it restores each element's prior color when drift clears. Boards created by `diagram_repo`, `draw_canvas`, or an older release do not contain trackable code-graph metadata; create a graph with `diagram_code_graph` before comparing drift.
+
+The v0.4.0 scanner supports `.js`, `.jsx`, `.mjs`, `.cjs`, `.ts`, `.tsx`, `.mts`, and `.cts` modules. It reports unresolved relative imports and counts external imports without drawing external packages. It models module/import relationships, not runtime call graphs.
 
 ### Prompt-Driven Diagrams
 
@@ -99,6 +138,7 @@ This project is early and feedback is useful. Please open an issue if:
 
 - The generated workflow misses the real product flow.
 - A board does not open in your tldraw-compatible viewer.
+- Code graph drift reports an incorrect module or import relationship.
 - You have a messy repo where a PM and engineer need a clearer shared map.
 
 Use the GitHub issue templates for bugs, feature requests, and real-world examples.
@@ -128,7 +168,7 @@ env = { TLDRAW_MCP_ALLOWED_ROOTS = "/Users/me/dev:/Users/me/work" }
 
 When the allowlist is set, `repoPath` must resolve inside one of those roots.
 
-Generated `.tldr` files do not store absolute local repository paths in shape metadata.
+Generated `.tldr` files do not store absolute local repository paths in shape metadata. Trackable code graphs store repository-relative source paths.
 
 ## Local Development
 
