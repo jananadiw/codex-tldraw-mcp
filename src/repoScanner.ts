@@ -1,21 +1,10 @@
 import fs from 'node:fs/promises'
 import path from 'node:path'
+import { walkRepo } from './repoFiles.js'
 import type { ProductWorkflow, WorkflowConnection, WorkflowStep } from './types.js'
 
-const MAX_FILES = 500
 const MAX_TEXT_FILES = 120
 const MAX_TEXT_BYTES = 20_000
-const IGNORE_DIRS = new Set([
-  '.git',
-  '.next',
-  'coverage',
-  'dist',
-  'build',
-  'node_modules',
-  'out',
-  'target',
-  '.turbo',
-])
 const TEXT_EXTENSIONS = new Set([
   '.css',
   '.html',
@@ -37,7 +26,7 @@ export async function scanRepo(repoPath: string): Promise<ProductWorkflow> {
   const stat = await fs.stat(root)
   if (!stat.isDirectory()) throw new Error(`Repo path is not a directory: ${root}`)
 
-  const files = await walk(root)
+  const files = await walkRepo(root)
   const packageJson = await readPackageJson(root)
   const repoName = packageJson?.name ?? path.basename(root)
   const sourceText = await readSearchableText(root, files, packageJson)
@@ -50,31 +39,6 @@ export async function scanRepo(repoPath: string): Promise<ProductWorkflow> {
     steps,
     connections,
   }
-}
-
-async function walk(root: string) {
-  const results: string[] = []
-
-  async function visit(dir: string) {
-    if (results.length >= MAX_FILES) return
-    const entries = await fs.readdir(dir, { withFileTypes: true })
-    entries.sort((a, b) => a.name.localeCompare(b.name))
-
-    for (const entry of entries) {
-      if (results.length >= MAX_FILES) return
-      if (entry.name.startsWith('.') && entry.name !== '.github') continue
-      const fullPath = path.join(dir, entry.name)
-      const relativePath = path.relative(root, fullPath)
-      if (entry.isDirectory()) {
-        if (!IGNORE_DIRS.has(entry.name)) await visit(fullPath)
-      } else if (entry.isFile()) {
-        results.push(relativePath)
-      }
-    }
-  }
-
-  await visit(root)
-  return results
 }
 
 async function readPackageJson(root: string) {

@@ -83,3 +83,10 @@
 - Reason: Demo media dominated the package size, token-based npm publishing adds avoidable secret management, and the registry verifies the referenced npm version.
 - Impact: Release checks enforce a small complete tarball; GitHub Releases trigger npm publishing before maintainers run `mcp-publisher`.
 - Revisit: Reconsider the media strategy if npm supports external package assets or automate registry publishing when its authentication supports a safe unattended workflow.
+
+## Trackable Code Graphs
+
+- Decision: Add a separate JavaScript and TypeScript module/import graph with stable repository-relative metadata and preview-first drift comparison.
+- Reason: Product workflows cannot reliably identify stale source modules or imports, while deterministic code identities can keep repo-local diagrams useful after code changes.
+- Impact: `diagram_code_graph` creates trackable boards; `compare_code_graph` reports unchanged, changed, stale, and new elements and can style existing generated shapes without moving or rewriting them.
+- Revisit: Add layout-preserving insertion or baseline refresh when users need new graph elements placed automatically.

@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.4.0
+
+- Added `diagram_code_graph` for trackable JavaScript and TypeScript module/import diagrams.
+- Added `compare_code_graph` with read-only preview and optional drift markers.
+- Marked stale graph elements red and changed modules orange while preserving user layout, labels, manual shapes, unrelated diagrams, and each element's prior color for restoration.
+- Reported new elements, unresolved relative imports, and external import counts without rearranging the board.
+- Added deterministic repository-relative identities and fingerprints without storing absolute paths in shape metadata.
+- Used the TypeScript parser for syntax-aware imports, re-exports, dynamic imports, CommonJS `require`, JSX, and regular-expression literals.
+- Added lifecycle coverage for preview safety, stale and changed markers, new elements, restoration, idempotency, legacy boards, and user-content preservation.
+
 ## 0.3.0
 
 - Wrapped node and connector text before rendering so labels stay readable.
