@@ -18,17 +18,6 @@ export interface ProductWorkflow {
   connections: WorkflowConnection[]
 }
 
-export interface DiagramResult {
-  boardName: string
-  boardPath: string
-  repoPath: string
-  diagramId: string
-  stepCount: number
-  connectionCount: number
-  shapeCount: number
-  appended: boolean
-}
-
 export interface BoardSummary {
   boardName: string
   boardPath: string
@@ -47,7 +36,7 @@ export interface BoardSummary {
 
 export type CodeGraphImportKind = 'dynamic-import' | 'import' | 're-export' | 'require'
 
-export interface CodeGraphNode {
+interface CodeGraphNode {
   id: string
   label: string
   sourcePath: string
