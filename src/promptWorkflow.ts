@@ -1,3 +1,4 @@
+import { buildSequentialConnections } from './workflow.js'
 import type { ProductWorkflow, WorkflowConnection, WorkflowStep } from './types.js'
 
 const STEP_ID_PATTERN = /^[a-zA-Z0-9._-]+$/
@@ -77,18 +78,6 @@ function normalizePromptConnections(connections: PromptWorkflowConnection[], ste
       label: connection.label?.trim() || '',
     }
   })
-}
-
-function buildSequentialConnections(steps: WorkflowStep[]) {
-  const connections: WorkflowConnection[] = []
-  for (let index = 0; index < steps.length - 1; index += 1) {
-    connections.push({
-      from: steps[index].id,
-      to: steps[index + 1].id,
-      label: '',
-    })
-  }
-  return connections
 }
 
 function slugify(value: string) {

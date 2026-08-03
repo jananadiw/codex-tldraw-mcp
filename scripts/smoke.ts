@@ -2,11 +2,25 @@ import fs from 'node:fs/promises'
 import { appendWorkflowDiagram, loadBoard, saveBoard, summarizeBoard } from '../src/tldrawBoard.js'
 import { scanRepo } from '../src/repoScanner.js'
 import { buildPromptWorkflow } from '../src/promptWorkflow.js'
+import type { ProductWorkflow } from '../src/types.js'
 
 const boardName = `smoke-${Date.now().toString(36)}`
 const promptBoardName = `${boardName}-prompt`
 const workflow = await scanRepo(process.cwd())
 const boardRoot = workflow.repoPath
+assertSequentialConnections(workflow, 'scanned repository workflow')
+
+const sequentialPromptWorkflow = buildPromptWorkflow('Sequential prompt workflow', boardRoot, [
+  { id: 'first', label: 'First' },
+  { id: 'second', label: 'Second' },
+  { id: 'third', label: 'Third' },
+])
+assertSequentialConnections(sequentialPromptWorkflow, 'prompt workflow')
+
+const singleStepPromptWorkflow = buildPromptWorkflow('Single-step prompt workflow', boardRoot, [
+  { id: 'only', label: 'Only' },
+])
+assertSequentialConnections(singleStepPromptWorkflow, 'single-step prompt workflow')
 
 const firstStore = await loadBoard(boardName, boardRoot)
 const first = appendWorkflowDiagram(firstStore, workflow)
@@ -151,6 +165,22 @@ type RawShape = {
       kind?: string
       connectionIndex?: number
       segmentIndex?: number
+    }
+  }
+}
+
+function assertSequentialConnections(workflow: ProductWorkflow, label: string) {
+  const expectedCount = Math.max(0, workflow.steps.length - 1)
+  if (workflow.connections.length !== expectedCount) {
+    throw new Error(`Expected ${expectedCount} sequential connections for ${label}, found ${workflow.connections.length}.`)
+  }
+
+  for (let index = 0; index < workflow.connections.length; index += 1) {
+    const connection = workflow.connections[index]
+    const from = workflow.steps[index]
+    const to = workflow.steps[index + 1]
+    if (connection.from !== from.id || connection.to !== to.id || connection.label !== '') {
+      throw new Error(`Unexpected sequential connection ${index + 1} for ${label}.`)
     }
   }
 }

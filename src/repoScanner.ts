@@ -1,7 +1,8 @@
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import { walkRepo } from './repoFiles.js'
-import type { ProductWorkflow, WorkflowConnection, WorkflowStep } from './types.js'
+import { buildSequentialConnections } from './workflow.js'
+import type { ProductWorkflow, WorkflowStep } from './types.js'
 
 const MAX_TEXT_FILES = 120
 const MAX_TEXT_BYTES = 20_000
@@ -31,7 +32,7 @@ export async function scanRepo(repoPath: string): Promise<ProductWorkflow> {
   const repoName = packageJson?.name ?? path.basename(root)
   const sourceText = await readSearchableText(root, files, packageJson)
   const steps = buildWorkflowSteps(repoName, sourceText)
-  const connections = buildConnections(steps)
+  const connections = buildSequentialConnections(steps)
 
   return {
     repoName,
@@ -166,18 +167,6 @@ function outputStepLabel(signals: ReturnType<typeof detectSignals>) {
   if (signals.download) return 'User downloads the result'
   if (signals.export) return 'User exports the result'
   return 'User reviews the result'
-}
-
-function buildConnections(steps: WorkflowStep[]) {
-  const connections: WorkflowConnection[] = []
-  for (let index = 0; index < steps.length - 1; index += 1) {
-    connections.push({
-      from: steps[index].id,
-      to: steps[index + 1].id,
-      label: '',
-    })
-  }
-  return connections
 }
 
 function displayName(repoName: string) {
