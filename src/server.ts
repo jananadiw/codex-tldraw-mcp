@@ -17,6 +17,7 @@ import {
 import { boardPath, normalizeBoardName, workspaceRoot } from './paths.js'
 import { buildPromptWorkflow } from './promptWorkflow.js'
 import { scanRepo } from './repoScanner.js'
+import type { ProductWorkflow } from './types.js'
 
 const repoPathInput = z
   .string()
@@ -84,6 +85,27 @@ export function createServer() {
 
   async function resolveResourceRepoPath() {
     return resolveRepoPath(activeResourceRepoPath)
+  }
+
+  async function appendWorkflowToBoard(workflow: ProductWorkflow, boardName: string, repoPath: string) {
+    const store = await loadBoard(boardName, repoPath)
+    const diagram = appendWorkflowDiagram(store, workflow)
+    const writtenPath = await saveBoard(boardName, store, repoPath)
+
+    return {
+      diagram,
+      writtenPath,
+      result: {
+        boardName,
+        boardPath: writtenPath,
+        repoPath,
+        diagramId: diagram.diagramId,
+        stepCount: workflow.steps.length,
+        connectionCount: workflow.connections.length,
+        shapeCount: diagram.shapeCount,
+        appended: diagram.appended,
+      },
+    }
   }
 
   const server = new McpServer(
@@ -217,19 +239,11 @@ export function createServer() {
       const resolvedRepoPath = await resolveToolRepoPath(repoPath)
       const normalizedBoardName = normalizeBoardName(boardName)
       const workflow = await scanRepo(resolvedRepoPath)
-      const store = await loadBoard(normalizedBoardName, resolvedRepoPath)
-      const diagram = appendWorkflowDiagram(store, workflow)
-      const writtenPath = await saveBoard(normalizedBoardName, store, resolvedRepoPath)
-      const result = {
-        boardName: normalizedBoardName,
-        boardPath: writtenPath,
-        repoPath: resolvedRepoPath,
-        diagramId: diagram.diagramId,
-        stepCount: workflow.steps.length,
-        connectionCount: workflow.connections.length,
-        shapeCount: diagram.shapeCount,
-        appended: diagram.appended,
-      }
+      const { diagram, writtenPath, result } = await appendWorkflowToBoard(
+        workflow,
+        normalizedBoardName,
+        resolvedRepoPath
+      )
 
       return {
         structuredContent: result as unknown as Record<string, unknown>,
@@ -260,19 +274,11 @@ export function createServer() {
       const resolvedRepoPath = await resolveToolRepoPath(repoPath)
       const normalizedBoardName = normalizeBoardName(boardName)
       const workflow = buildPromptWorkflow(title, resolvedRepoPath, steps, connections)
-      const store = await loadBoard(normalizedBoardName, resolvedRepoPath)
-      const diagram = appendWorkflowDiagram(store, workflow)
-      const writtenPath = await saveBoard(normalizedBoardName, store, resolvedRepoPath)
-      const result = {
-        boardName: normalizedBoardName,
-        boardPath: writtenPath,
-        repoPath: resolvedRepoPath,
-        diagramId: diagram.diagramId,
-        stepCount: workflow.steps.length,
-        connectionCount: workflow.connections.length,
-        shapeCount: diagram.shapeCount,
-        appended: diagram.appended,
-      }
+      const { diagram, writtenPath, result } = await appendWorkflowToBoard(
+        workflow,
+        normalizedBoardName,
+        resolvedRepoPath
+      )
 
       return {
         structuredContent: result as unknown as Record<string, unknown>,
