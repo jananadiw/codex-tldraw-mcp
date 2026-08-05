@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.5.0
+
+- Added `draw_architecture` for reverse-engineering runtime behavior across a codebase's main components.
+- Put the primary user flow in a straight row and supporting services below the component that calls them.
+- Limited components to three actions and two short errors so generated boards stay scannable.
+- Combined each request and response into one concise, bound arrow instead of drawing overlapping return paths.
+- Stored repository evidence in shape metadata without adding it to the visible diagram.
+- Added architecture input documentation and smoke coverage for layout, validation, MCP transport, metadata, and bound endpoints.
+
 ## 0.4.0
 
 - Added `diagram_code_graph` for trackable JavaScript and TypeScript module/import diagrams.

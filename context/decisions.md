@@ -90,3 +90,10 @@
 - Reason: Product workflows cannot reliably identify stale source modules or imports, while deterministic code identities can keep repo-local diagrams useful after code changes.
 - Impact: `diagram_code_graph` creates trackable boards; `compare_code_graph` reports unchanged, changed, stale, and new elements and can style existing generated shapes without moving or rewriting them.
 - Revisit: Add layout-preserving insertion or baseline refresh when users need new graph elements placed automatically.
+
+## Simple Architecture Model
+
+- Decision: Render an explicit main flow, put support services below it, and keep errors inside components.
+- Reason: Bidirectional calls and long messages obscure the user journey when every detail becomes an arrow.
+- Impact: Components show at most three actions and two errors; each interaction has one short request/response label; evidence stays in metadata.
+- Revisit: Add one field only when real diagrams repeatedly cannot explain an important flow without it.
