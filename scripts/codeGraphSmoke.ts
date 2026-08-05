@@ -17,6 +17,7 @@ import {
 } from '../src/tldrawBoard.js'
 
 const root = await fs.mkdtemp(path.join(os.tmpdir(), 'codex-tldraw-code-graph-'))
+const resolvedRoot = await fs.realpath(root)
 const boardName = 'drift'
 const mainSource = `import { service } from './service.js'
 import('external-package')
@@ -45,7 +46,7 @@ try {
   assertCounts(initialGraph.unresolvedImports.length, 0, 'initial unresolved imports')
   await withMcpClient(async (client) => {
     const tools = await client.listTools()
-    for (const toolName of ['diagram_code_graph', 'compare_code_graph']) {
+    for (const toolName of ['diagram_code_graph', 'compare_code_graph', 'diagram_repo', 'draw_canvas']) {
       if (!tools.tools.some((tool) => tool.name === toolName)) throw new Error(`MCP server did not register ${toolName}.`)
     }
     const result = await client.callTool({
@@ -55,6 +56,44 @@ try {
     if (result.isError || readNumber(result.structuredContent, 'nodeCount') !== 3) {
       throw new Error('diagram_code_graph failed through the stdio MCP transport.')
     }
+
+    const repoResult = await client.callTool({
+      name: 'diagram_repo',
+      arguments: { repoPath: root, boardName: 'mcp-repo-workflow' },
+    })
+    const repoBoardPath = readString(repoResult.structuredContent, 'boardPath')
+    if (
+      repoResult.isError ||
+      !repoBoardPath ||
+      readString(repoResult.structuredContent, 'boardName') !== 'mcp-repo-workflow' ||
+      readString(repoResult.structuredContent, 'repoPath') !== resolvedRoot ||
+      (readNumber(repoResult.structuredContent, 'stepCount') ?? 0) < 1
+    ) {
+      throw new Error('diagram_repo returned incorrect workflow metadata through the stdio MCP transport.')
+    }
+    await fs.access(repoBoardPath)
+
+    const canvasResult = await client.callTool({
+      name: 'draw_canvas',
+      arguments: {
+        repoPath: root,
+        boardName: 'mcp-prompt-workflow',
+        title: 'Prompt workflow',
+        steps: [{ id: 'start', label: 'Start' }, { id: 'finish', label: 'Finish' }],
+      },
+    })
+    const canvasBoardPath = readString(canvasResult.structuredContent, 'boardPath')
+    if (
+      canvasResult.isError ||
+      !canvasBoardPath ||
+      readString(canvasResult.structuredContent, 'boardName') !== 'mcp-prompt-workflow' ||
+      readString(canvasResult.structuredContent, 'repoPath') !== resolvedRoot ||
+      readNumber(canvasResult.structuredContent, 'stepCount') !== 2 ||
+      readNumber(canvasResult.structuredContent, 'connectionCount') !== 1
+    ) {
+      throw new Error('draw_canvas returned incorrect workflow metadata through the stdio MCP transport.')
+    }
+    await fs.access(canvasBoardPath)
   })
 
   const store = await loadBoard(boardName, root)
@@ -440,4 +479,10 @@ function readNumber(value: unknown, key: string) {
   if (!value || typeof value !== 'object') return undefined
   const entry = (value as Record<string, unknown>)[key]
   return typeof entry === 'number' ? entry : undefined
+}
+
+function readString(value: unknown, key: string) {
+  if (!value || typeof value !== 'object') return undefined
+  const entry = (value as Record<string, unknown>)[key]
+  return typeof entry === 'string' ? entry : undefined
 }
