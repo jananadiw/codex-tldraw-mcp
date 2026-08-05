@@ -12,6 +12,7 @@
   "files": [
     "CHANGELOG.md",
     "dist",
+    "docs/architecture-diagrams.md",
     "docs/release-v0.1.1.md",
     "docs/release-v0.2.0.md",
     "docs/release-v0.2.1.md",
@@ -30,7 +31,7 @@
     "build": "tsc -p tsconfig.json && tsc -p tsconfig.check.json --noEmit",
     "dev": "bun src/index.ts",
     "check:package": "bun scripts/checkPackage.ts",
-    "smoke": "bun scripts/smoke.ts && bun scripts/codeGraphSmoke.ts",
+    "smoke": "bun scripts/smoke.ts && bun scripts/codeGraphSmoke.ts && bun scripts/architectureSmoke.ts",
     "test": "bun run smoke",
     "prepack": "bun run build"
   },

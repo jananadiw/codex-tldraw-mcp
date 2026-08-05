@@ -18,6 +18,28 @@ export interface ProductWorkflow {
   connections: WorkflowConnection[]
 }
 
+export interface ArchitectureComponent {
+  id: string
+  label: string
+  actions: string[]
+  errors: string[]
+  evidence: string[]
+}
+
+export interface ArchitectureConnection {
+  from: string
+  to: string
+  call: string
+  evidence: string[]
+}
+
+export interface ArchitectureDiagram {
+  title: string
+  repoPath: string
+  components: ArchitectureComponent[]
+  primaryFlow: string[]
+  connections: ArchitectureConnection[]
+}
 export interface BoardSummary {
   boardName: string
   boardPath: string

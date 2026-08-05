@@ -22,6 +22,13 @@ Then ask Codex to diagram the current repo:
 Use codex-tldraw to diagram this repo.
 ```
 
+Reverse-engineer its runtime architecture:
+
+```text
+Use codex-tldraw to show how this repo works across its main components.
+Show the main flow first, keep short errors inside components, and label each interaction once.
+```
+
 Or ask for a diagram directly:
 
 ```text
@@ -53,6 +60,7 @@ Open the generated board in a tldraw-compatible viewer.
 - A repo-local `.tldr` board that stays with the project it explains.
 - A user-facing product workflow inferred from package metadata and source text.
 - A prompt-driven offline canvas API for drawing workflows, state machines, plans, and architecture sketches that are not tied to repo scanning.
+- Simple architecture diagrams showing the main flow first, with supporting services below it.
 - A trackable JavaScript and TypeScript module/import graph with drift detection.
 - Red markers for stale nodes and edges, orange markers for changed modules, and a report of new elements.
 - tldraw steps and arrows laid out left to right.
@@ -79,6 +87,7 @@ args = ["-y", "codex-tldraw-mcp"]
 
 - `diagram_repo`: scans a repo and appends a product workflow diagram to `<repo>/boards/<boardName>.tldr`.
 - `draw_canvas`: appends a prompt-provided workflow, state machine, architecture sketch, or plan to `<repo>/boards/<boardName>.tldr`.
+- `draw_architecture`: appends a simple codebase architecture view with a main flow, supporting components, actions, calls, and errors.
 - `diagram_code_graph`: scans repository-local JavaScript and TypeScript modules and appends a trackable import graph.
 - `compare_code_graph`: previews drift or marks changed and stale elements on an existing trackable code graph.
 - `list_boards`: lists boards under a repo's `boards/` directory.
@@ -131,6 +140,20 @@ Idle -> Reset requested -> Email sent -> Token verified -> Password updated.
 Use codex-tldraw to append an architecture diagram for this plan:
 Web app calls API gateway, API gateway calls worker queue, worker writes generated files to object storage.
 ```
+
+### Simple Architecture
+
+`draw_architecture` helps a new reader understand how work moves across a codebase. Codex inspects the code first, then sends the renderer a small model:
+
+- The main user flow becomes a straight row of boxes.
+- Supporting services sit below the component that calls them.
+- Each component shows at most three important actions and two short errors.
+- Each interaction gets one concise arrow; request and response share that arrow.
+- Source evidence is optional metadata and does not clutter the diagram.
+
+Keep libraries and helper modules inside component actions. For example, "validate the response with Zod" belongs inside the API component rather than becoming a separate Zod component. Meaningful arrows have bindings to both endpoint shapes.
+
+See [Architecture Diagrams](docs/architecture-diagrams.md) for the analysis contract and input model.
 
 ## Feedback
 

@@ -2,6 +2,8 @@ import { McpServer, ResourceTemplate } from '@modelcontextprotocol/sdk/server/mc
 import { z } from 'zod'
 import fs from 'node:fs/promises'
 import path from 'node:path'
+import { appendArchitectureDiagram } from './architectureBoard.js'
+import { ARCHITECTURE_ANALYSIS_INSTRUCTIONS, buildArchitectureDiagram } from './architectureDiagram.js'
 import { compareCodeGraphs } from './codeGraphDrift.js'
 import { scanCodeGraph } from './codeGraphScanner.js'
 import {
@@ -74,6 +76,58 @@ const drawCanvasInput = {
     .describe('Arrows between steps. If omitted, steps are connected sequentially from left to right.'),
 }
 
+const architectureEvidenceInput = z
+  .array(z.string().min(1))
+  .optional()
+  .describe('Optional repository-relative files or symbols that support this item.')
+
+const architectureComponentInput = z.object({
+  id: z
+    .string()
+    .regex(/^[a-zA-Z0-9._-]+$/, 'Component id must contain only letters, numbers, dots, underscores, or dashes.'),
+  label: z.string().min(1).describe('Short component name shown in the diagram.'),
+  actions: z
+    .array(z.string().min(1).max(72))
+    .min(1)
+    .max(3)
+    .describe('One to three short actions this component performs, in execution order.'),
+  errors: z
+    .array(z.string().min(1).max(60))
+    .max(2)
+    .optional()
+    .describe('Up to two short caller-visible errors shown inside this component.'),
+  evidence: architectureEvidenceInput,
+})
+
+const architectureConnectionInput = z.object({
+  from: z.string().min(1).describe('Source component id.'),
+  to: z.string().min(1).describe('Destination component id.'),
+  call: z.string().min(1).max(32).describe('Short API call, event, or data transfer shown on the arrow.'),
+  evidence: architectureEvidenceInput,
+})
+
+const drawArchitectureInput = {
+  repoPath: repoPathInput,
+  boardName: z
+    .string()
+    .optional()
+    .describe('Board name under the target repository boards directory. Defaults to "main".'),
+  title: z.string().min(1).describe('Architecture diagram title.'),
+  components: z
+    .array(architectureComponentInput)
+    .min(2)
+    .max(7)
+    .describe('Two to seven main runtime components. Keep the list small.'),
+  primaryFlow: z
+    .array(z.string().min(1))
+    .min(2)
+    .max(4)
+    .describe('Component ids in the main user flow, ordered from first action to final result.'),
+  connections: z
+    .array(architectureConnectionInput)
+    .describe('One short connection per interaction. Combine request and response instead of adding a return arrow.'),
+}
+
 export function createServer() {
   let activeResourceRepoPath = workspaceRoot()
 
@@ -114,8 +168,10 @@ export function createServer() {
       version: '0.4.0',
     },
     {
-      instructions:
-        'Use diagram_repo to infer a product workflow, draw_canvas for prompt-provided diagrams, diagram_code_graph for a trackable JavaScript or TypeScript module graph, and compare_code_graph to detect drift. Diagram tools append to tldraw .tldr boards instead of clearing the canvas.',
+      instructions: [
+        'Use diagram_repo to infer a product workflow, draw_canvas for prompt-provided diagrams, draw_architecture for a simple component-and-call architecture view, diagram_code_graph for a trackable JavaScript or TypeScript module graph, and compare_code_graph to detect drift. Diagram tools append to tldraw .tldr boards instead of clearing the canvas.',
+        ARCHITECTURE_ANALYSIS_INSTRUCTIONS,
+      ].join('\n\n'),
     }
   )
 
@@ -286,6 +342,57 @@ export function createServer() {
           {
             type: 'text',
             text: `Created ${diagram.appended ? 'a new appended' : 'an initial'} tldraw diagram "${workflow.repoName}" on board "${normalizedBoardName}". File: ${writtenPath}`,
+          },
+        ],
+      }
+    }
+  )
+
+  server.registerTool(
+    'draw_architecture',
+    {
+      title: 'Draw simple system architecture',
+      description:
+        'Appends a simple architecture diagram with a straight main flow, supporting components below it, concise calls, and errors inside components. Inspect the codebase first and keep implementation libraries inside component actions.',
+      inputSchema: drawArchitectureInput,
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+      },
+    },
+    async ({
+      repoPath = workspaceRoot(),
+      boardName = 'main',
+      title,
+      components,
+      primaryFlow,
+      connections,
+    }) => {
+      const resolvedRepoPath = await resolveToolRepoPath(repoPath)
+      const normalizedBoardName = normalizeBoardName(boardName)
+      const architecture = buildArchitectureDiagram(title, resolvedRepoPath, components, primaryFlow, connections)
+      const store = await loadBoard(normalizedBoardName, resolvedRepoPath)
+      const diagram = appendArchitectureDiagram(store, architecture)
+      const writtenPath = await saveBoard(normalizedBoardName, store, resolvedRepoPath)
+      const result = {
+        boardName: normalizedBoardName,
+        boardPath: writtenPath,
+        repoPath: resolvedRepoPath,
+        diagramId: diagram.diagramId,
+        componentCount: architecture.components.length,
+        connectionCount: architecture.connections.length,
+        shapeCount: diagram.shapeCount,
+        bindingCount: diagram.bindingCount,
+        appended: diagram.appended,
+      }
+
+      return {
+        structuredContent: result as unknown as Record<string, unknown>,
+        content: [
+          {
+            type: 'text',
+            text: `Created ${diagram.appended ? 'an appended' : 'an initial'} architecture diagram "${architecture.title}" with ${architecture.components.length} components and ${architecture.connections.length} connections on board "${normalizedBoardName}". File: ${writtenPath}`,
           },
         ],
       }
