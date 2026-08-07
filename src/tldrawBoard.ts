@@ -1,5 +1,4 @@
 import fs from 'node:fs/promises'
-import './webCrypto.js'
 import {
   CameraRecordType,
   createShapeId,
