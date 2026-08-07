@@ -21,13 +21,6 @@
 - Impact: `diagram_repo` now infers user-facing steps from repo text and renders them left to right.
 - Revisit: Add a separate architecture mode if users need implementation diagrams again.
 
-## Node Web Crypto Shim
-
-- Decision: Set `globalThis.crypto` from Node's built-in `webcrypto` when it is missing.
-- Reason: tldraw store creation expects Web Crypto, and older Node 18 patch versions may not expose it globally.
-- Impact: The stdio server stays dependency-free while working in local Codex runtimes.
-- Revisit: Remove the shim if the project raises its minimum Node version to one that always exposes global Web Crypto.
-
 ## Codex-First Distribution
 
 - Decision: Publish as an npm executable MCP server while using Bun for local development.
