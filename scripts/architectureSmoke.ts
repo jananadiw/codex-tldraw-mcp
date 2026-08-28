@@ -1,10 +1,9 @@
 import fs from 'node:fs/promises'
-import { Client } from '@modelcontextprotocol/sdk/client/index.js'
-import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import { appendArchitectureDiagram } from '../src/architectureBoard.js'
 import { buildArchitectureDiagram } from '../src/architectureDiagram.js'
 import { boardPath as resolveBoardPath } from '../src/paths.js'
 import { loadBoard, saveBoard, summarizeBoard } from '../src/tldrawBoard.js'
+import { withMcpClient } from './mcpSmokeClient.js'
 
 const boardName = `architecture-smoke-${Date.now().toString(36)}`
 const mcpBoardName = `${boardName}-mcp`
@@ -74,7 +73,7 @@ const architecture = buildArchitectureDiagram(
   ]
 )
 
-await withMcpClient(async (client) => {
+await withMcpClient('architecture-smoke', async (client) => {
   const tools = await client.listTools()
   const tool = tools.tools.find((candidate) => candidate.name === 'draw_architecture')
   if (!tool) throw new Error('MCP server did not register draw_architecture.')
@@ -281,22 +280,6 @@ function expectError(action: () => unknown, message: string) {
     throw error
   }
   throw new Error(`Expected validation error containing "${message}".`)
-}
-
-async function withMcpClient(run: (client: Client) => Promise<void>) {
-  const client = new Client({ name: 'architecture-smoke', version: '1.0.0' })
-  const transport = new StdioClientTransport({
-    command: 'node',
-    args: ['dist/index.js'],
-    cwd: process.cwd(),
-    stderr: 'pipe',
-  })
-  await client.connect(transport)
-  try {
-    await run(client)
-  } finally {
-    await client.close()
-  }
 }
 
 function readNumber(value: unknown, key: string) {
