@@ -1,8 +1,6 @@
 import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
-import { Client } from '@modelcontextprotocol/sdk/client/index.js'
-import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import { createShapeId, TLShape, toRichText } from 'tldraw'
 import { compareCodeGraphs } from '../src/codeGraphDrift.js'
 import { scanCodeGraph } from '../src/codeGraphScanner.js'
@@ -15,6 +13,7 @@ import {
   saveBoard,
   summarizeBoard,
 } from '../src/tldrawBoard.js'
+import { withMcpClient } from './mcpSmokeClient.js'
 
 const root = await fs.mkdtemp(path.join(os.tmpdir(), 'codex-tldraw-code-graph-'))
 const resolvedRoot = await fs.realpath(root)
@@ -44,7 +43,7 @@ try {
   assertCounts(initialGraph.edges.length, 2, 'initial local imports')
   assertCounts(initialGraph.externalImportCount, 1, 'initial external imports')
   assertCounts(initialGraph.unresolvedImports.length, 0, 'initial unresolved imports')
-  await withMcpClient(async (client) => {
+  await withMcpClient('code-graph-smoke', async (client) => {
     const tools = await client.listTools()
     for (const toolName of ['diagram_code_graph', 'compare_code_graph', 'diagram_repo', 'draw_canvas']) {
       if (!tools.tools.some((tool) => tool.name === toolName)) throw new Error(`MCP server did not register ${toolName}.`)
@@ -159,7 +158,7 @@ export function run() {
   assertCounts(preview.counts.changed, 1, 'changed graph elements')
   assertCounts(preview.counts.stale, 2, 'stale graph elements')
   assertCounts(preview.counts.new, 2, 'new graph elements')
-  await withMcpClient(async (client) => {
+  await withMcpClient('code-graph-smoke', async (client) => {
     const integrationBoardPath = path.join(root, 'boards/mcp-integration.tldr')
     const beforeToolPreview = await fs.readFile(integrationBoardPath, 'utf8')
     const result = await client.callTool({
@@ -265,7 +264,7 @@ export function run() {
   assertCounts(emptyGraph.nodes.length, 0, 'empty graph modules')
   const emptyDrift = compareCodeGraphs(readStoredCodeGraph(finalStore, diagram.diagramId), emptyGraph)
   assertCounts(emptyDrift.counts.stale, 5, 'empty graph stale elements')
-  await withMcpClient(async (client) => {
+  await withMcpClient('code-graph-smoke', async (client) => {
     const result = await client.callTool({
       name: 'compare_code_graph',
       arguments: { repoPath: root, boardName: 'mcp-integration' },
@@ -450,22 +449,6 @@ async function verifyScannerSyntax() {
     }
   } finally {
     await fs.rm(syntaxRoot, { recursive: true, force: true })
-  }
-}
-
-async function withMcpClient(run: (client: Client) => Promise<void>) {
-  const client = new Client({ name: 'code-graph-smoke', version: '1.0.0' })
-  const transport = new StdioClientTransport({
-    command: 'node',
-    args: ['dist/index.js'],
-    cwd: process.cwd(),
-    stderr: 'pipe',
-  })
-  await client.connect(transport)
-  try {
-    await run(client)
-  } finally {
-    await client.close()
   }
 }
 
