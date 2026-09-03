@@ -16,7 +16,7 @@ import {
   saveBoard,
   summarizeBoard,
 } from './tldrawBoard.js'
-import { boardPath, normalizeBoardName, workspaceRoot } from './paths.js'
+import { boardPath, normalizeBoardName, svgPath, workspaceRoot } from './paths.js'
 import { buildPromptWorkflow } from './promptWorkflow.js'
 import { scanRepo } from './repoScanner.js'
 import type { ProductWorkflow } from './types.js'
@@ -145,13 +145,16 @@ export function createServer() {
     const store = await loadBoard(boardName, repoPath)
     const diagram = appendWorkflowDiagram(store, workflow)
     const writtenPath = await saveBoard(boardName, store, repoPath)
+    const writtenSvgPath = svgPath(boardName, repoPath)
 
     return {
       diagram,
       writtenPath,
+      writtenSvgPath,
       result: {
         boardName,
         boardPath: writtenPath,
+        svgPath: writtenSvgPath,
         repoPath,
         diagramId: diagram.diagramId,
         stepCount: workflow.steps.length,
@@ -198,9 +201,11 @@ export function createServer() {
       const store = await loadBoard(normalizedBoardName, resolvedRepoPath)
       const diagram = appendCodeGraphDiagram(store, graph)
       const writtenPath = await saveBoard(normalizedBoardName, store, resolvedRepoPath)
+      const writtenSvgPath = svgPath(normalizedBoardName, resolvedRepoPath)
       const result = {
         boardName: normalizedBoardName,
         boardPath: writtenPath,
+        svgPath: writtenSvgPath,
         repoPath: resolvedRepoPath,
         diagramId: diagram.diagramId,
         nodeCount: graph.nodes.length,
@@ -213,12 +218,10 @@ export function createServer() {
 
       return {
         structuredContent: result as unknown as Record<string, unknown>,
-        content: [
-          {
-            type: 'text',
-            text: `Created a trackable code graph with ${graph.nodes.length} modules and ${graph.edges.length} local imports on board "${normalizedBoardName}". File: ${writtenPath}`,
-          },
-        ],
+        content: boardArtifactContent(
+          normalizedBoardName,
+          `Created a trackable code graph with ${graph.nodes.length} modules and ${graph.edges.length} local imports on board "${normalizedBoardName}". Files: ${writtenPath}, ${writtenSvgPath}`
+        ),
       }
     }
   )
@@ -295,7 +298,7 @@ export function createServer() {
       const resolvedRepoPath = await resolveToolRepoPath(repoPath)
       const normalizedBoardName = normalizeBoardName(boardName)
       const workflow = await scanRepo(resolvedRepoPath)
-      const { diagram, writtenPath, result } = await appendWorkflowToBoard(
+      const { diagram, writtenPath, writtenSvgPath, result } = await appendWorkflowToBoard(
         workflow,
         normalizedBoardName,
         resolvedRepoPath
@@ -303,12 +306,10 @@ export function createServer() {
 
       return {
         structuredContent: result as unknown as Record<string, unknown>,
-        content: [
-          {
-            type: 'text',
-            text: `Created ${diagram.appended ? 'a new appended' : 'an initial'} tldraw product workflow diagram for ${workflow.repoName} on board "${normalizedBoardName}". File: ${writtenPath}`,
-          },
-        ],
+        content: boardArtifactContent(
+          normalizedBoardName,
+          `Created ${diagram.appended ? 'a new appended' : 'an initial'} tldraw product workflow diagram for ${workflow.repoName} on board "${normalizedBoardName}". Files: ${writtenPath}, ${writtenSvgPath}`
+        ),
       }
     }
   )
@@ -330,7 +331,7 @@ export function createServer() {
       const resolvedRepoPath = await resolveToolRepoPath(repoPath)
       const normalizedBoardName = normalizeBoardName(boardName)
       const workflow = buildPromptWorkflow(title, resolvedRepoPath, steps, connections)
-      const { diagram, writtenPath, result } = await appendWorkflowToBoard(
+      const { diagram, writtenPath, writtenSvgPath, result } = await appendWorkflowToBoard(
         workflow,
         normalizedBoardName,
         resolvedRepoPath
@@ -338,12 +339,10 @@ export function createServer() {
 
       return {
         structuredContent: result as unknown as Record<string, unknown>,
-        content: [
-          {
-            type: 'text',
-            text: `Created ${diagram.appended ? 'a new appended' : 'an initial'} tldraw diagram "${workflow.repoName}" on board "${normalizedBoardName}". File: ${writtenPath}`,
-          },
-        ],
+        content: boardArtifactContent(
+          normalizedBoardName,
+          `Created ${diagram.appended ? 'a new appended' : 'an initial'} tldraw diagram "${workflow.repoName}" on board "${normalizedBoardName}". Files: ${writtenPath}, ${writtenSvgPath}`
+        ),
       }
     }
   )
@@ -375,9 +374,11 @@ export function createServer() {
       const store = await loadBoard(normalizedBoardName, resolvedRepoPath)
       const diagram = appendArchitectureDiagram(store, architecture)
       const writtenPath = await saveBoard(normalizedBoardName, store, resolvedRepoPath)
+      const writtenSvgPath = svgPath(normalizedBoardName, resolvedRepoPath)
       const result = {
         boardName: normalizedBoardName,
         boardPath: writtenPath,
+        svgPath: writtenSvgPath,
         repoPath: resolvedRepoPath,
         diagramId: diagram.diagramId,
         componentCount: architecture.components.length,
@@ -389,12 +390,10 @@ export function createServer() {
 
       return {
         structuredContent: result as unknown as Record<string, unknown>,
-        content: [
-          {
-            type: 'text',
-            text: `Created ${diagram.appended ? 'an appended' : 'an initial'} architecture diagram "${architecture.title}" with ${architecture.components.length} components and ${architecture.connections.length} connections on board "${normalizedBoardName}". File: ${writtenPath}`,
-          },
-        ],
+        content: boardArtifactContent(
+          normalizedBoardName,
+          `Created ${diagram.appended ? 'an appended' : 'an initial'} architecture diagram "${architecture.title}" with ${architecture.components.length} components and ${architecture.connections.length} connections on board "${normalizedBoardName}". Files: ${writtenPath}, ${writtenSvgPath}`
+        ),
       }
     }
   )
@@ -523,7 +522,60 @@ export function createServer() {
     }
   )
 
+  server.registerResource(
+    'board-svg',
+    new ResourceTemplate('tldraw://boards/{name}/svg', {
+      list: async () => {
+        const repoPath = await resolveResourceRepoPath()
+        const boards = await listBoardNames(repoPath)
+        return {
+          resources: boards.map((name) => ({
+            name: `${name} SVG preview`,
+            uri: `tldraw://boards/${name}/svg`,
+            mimeType: 'image/svg+xml',
+          })),
+        }
+      },
+    }),
+    {
+      title: 'Board SVG preview',
+      description: 'Portable SVG preview of a generated tldraw board.',
+      mimeType: 'image/svg+xml',
+    },
+    async (_uri, variables) => {
+      const repoPath = await resolveResourceRepoPath()
+      const name = normalizeBoardName(String(variables.name))
+      return {
+        contents: [
+          {
+            uri: `tldraw://boards/${name}/svg`,
+            mimeType: 'image/svg+xml',
+            text: await fs.readFile(svgPath(name, repoPath), 'utf8'),
+          },
+        ],
+      }
+    }
+  )
+
   return server
+}
+
+function boardArtifactContent(boardName: string, message: string) {
+  return [
+    { type: 'text' as const, text: message },
+    {
+      type: 'resource_link' as const,
+      name: `${boardName}.tldr`,
+      uri: `tldraw://boards/${boardName}/file`,
+      mimeType: 'application/vnd.tldraw+json',
+    },
+    {
+      type: 'resource_link' as const,
+      name: `${boardName}.svg`,
+      uri: `tldraw://boards/${boardName}/svg`,
+      mimeType: 'image/svg+xml',
+    },
+  ]
 }
 
 async function resolveRepoPath(repoPath: string) {

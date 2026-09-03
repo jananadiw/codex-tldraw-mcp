@@ -55,15 +55,27 @@ try {
     if (result.isError || readNumber(result.structuredContent, 'nodeCount') !== 3) {
       throw new Error('diagram_code_graph failed through the stdio MCP transport.')
     }
+    const graphSvgPath = readString(result.structuredContent, 'svgPath')
+    if (!graphSvgPath || !hasSvgResourceLink(result.content)) {
+      throw new Error('diagram_code_graph did not return its SVG artifact through the stdio MCP transport.')
+    }
+    await fs.access(graphSvgPath)
+    const svgResource = await client.readResource({ uri: 'tldraw://boards/mcp-integration/svg' })
+    const svgContents = svgResource.contents[0]
+    if (svgContents?.mimeType !== 'image/svg+xml' || !('text' in svgContents) || !svgContents.text.includes('<svg')) {
+      throw new Error('SVG board resource did not return an image through the stdio MCP transport.')
+    }
 
     const repoResult = await client.callTool({
       name: 'diagram_repo',
       arguments: { repoPath: root, boardName: 'mcp-repo-workflow' },
     })
     const repoBoardPath = readString(repoResult.structuredContent, 'boardPath')
+    const repoSvgPath = readString(repoResult.structuredContent, 'svgPath')
     if (
       repoResult.isError ||
       !repoBoardPath ||
+      !repoSvgPath ||
       readString(repoResult.structuredContent, 'boardName') !== 'mcp-repo-workflow' ||
       readString(repoResult.structuredContent, 'repoPath') !== resolvedRoot ||
       (readNumber(repoResult.structuredContent, 'stepCount') ?? 0) < 1
@@ -71,6 +83,7 @@ try {
       throw new Error('diagram_repo returned incorrect workflow metadata through the stdio MCP transport.')
     }
     await fs.access(repoBoardPath)
+    await fs.access(repoSvgPath)
 
     const canvasResult = await client.callTool({
       name: 'draw_canvas',
@@ -82,9 +95,11 @@ try {
       },
     })
     const canvasBoardPath = readString(canvasResult.structuredContent, 'boardPath')
+    const canvasSvgPath = readString(canvasResult.structuredContent, 'svgPath')
     if (
       canvasResult.isError ||
       !canvasBoardPath ||
+      !canvasSvgPath ||
       readString(canvasResult.structuredContent, 'boardName') !== 'mcp-prompt-workflow' ||
       readString(canvasResult.structuredContent, 'repoPath') !== resolvedRoot ||
       readNumber(canvasResult.structuredContent, 'stepCount') !== 2 ||
@@ -93,6 +108,7 @@ try {
       throw new Error('draw_canvas returned incorrect workflow metadata through the stdio MCP transport.')
     }
     await fs.access(canvasBoardPath)
+    await fs.access(canvasSvgPath)
   })
 
   const store = await loadBoard(boardName, root)
@@ -160,7 +176,9 @@ export function run() {
   assertCounts(preview.counts.new, 2, 'new graph elements')
   await withMcpClient('code-graph-smoke', async (client) => {
     const integrationBoardPath = path.join(root, 'boards/mcp-integration.tldr')
+    const integrationSvgPath = path.join(root, 'boards/mcp-integration.svg')
     const beforeToolPreview = await fs.readFile(integrationBoardPath, 'utf8')
+    const beforeSvgPreview = await fs.readFile(integrationSvgPath, 'utf8')
     const result = await client.callTool({
       name: 'compare_code_graph',
       arguments: { repoPath: root, boardName: 'mcp-integration' },
@@ -172,12 +190,18 @@ export function run() {
     if (beforeToolPreview !== await fs.readFile(integrationBoardPath, 'utf8')) {
       throw new Error('compare_code_graph preview wrote the board through the stdio MCP transport.')
     }
+    if (beforeSvgPreview !== await fs.readFile(integrationSvgPath, 'utf8')) {
+      throw new Error('compare_code_graph preview wrote the SVG through the stdio MCP transport.')
+    }
     const applied = await client.callTool({
       name: 'compare_code_graph',
       arguments: { repoPath: root, boardName: 'mcp-integration', applyMarkers: true },
     })
     if (applied.isError || (readNumber(applied.structuredContent, 'updatedShapeCount') ?? 0) < 3) {
       throw new Error('compare_code_graph did not apply markers through the stdio MCP transport.')
+    }
+    if (beforeSvgPreview === await fs.readFile(integrationSvgPath, 'utf8')) {
+      throw new Error('Applied drift markers did not refresh the SVG preview.')
     }
   })
 
@@ -468,4 +492,12 @@ function readString(value: unknown, key: string) {
   if (!value || typeof value !== 'object') return undefined
   const entry = (value as Record<string, unknown>)[key]
   return typeof entry === 'string' ? entry : undefined
+}
+
+function hasSvgResourceLink(content: unknown) {
+  return Array.isArray(content) && content.some((entry) => {
+    if (!entry || typeof entry !== 'object') return false
+    const item = entry as Record<string, unknown>
+    return item.type === 'resource_link' && item.mimeType === 'image/svg+xml'
+  })
 }
