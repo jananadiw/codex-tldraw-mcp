@@ -1,4 +1,5 @@
 import fs from 'node:fs/promises'
+import { svgPath as resolveSvgPath } from '../src/paths.js'
 import { appendWorkflowDiagram, loadBoard, saveBoard, summarizeBoard } from '../src/tldrawBoard.js'
 import { scanRepo } from '../src/repoScanner.js'
 import { buildPromptWorkflow } from '../src/promptWorkflow.js'
@@ -25,15 +26,18 @@ assertSequentialConnections(singleStepPromptWorkflow, 'single-step prompt workfl
 const firstStore = await loadBoard(boardName, boardRoot)
 const first = appendWorkflowDiagram(firstStore, workflow)
 await saveBoard(boardName, firstStore, boardRoot)
+const previewPath = resolveSvgPath(boardName, boardRoot)
+const firstPreview = await fs.readFile(previewPath, 'utf8')
 
 const secondStore = await loadBoard(boardName, boardRoot)
 const second = appendWorkflowDiagram(secondStore, workflow)
 const boardPath = await saveBoard(boardName, secondStore, boardRoot)
+const secondPreview = await fs.readFile(previewPath, 'utf8')
 
 const summary = await summarizeBoard(boardName, boardRoot)
 const raw = JSON.parse(await fs.readFile(boardPath, 'utf8')) as { records?: unknown[] }
 const promptWorkflow = buildPromptWorkflow(
-  'Visual stress workflow',
+  'Visual stress & workflow',
   boardRoot,
   [
     {
@@ -89,6 +93,7 @@ const promptWorkflow = buildPromptWorkflow(
 const promptStore = await loadBoard(promptBoardName, boardRoot)
 const promptDiagram = appendWorkflowDiagram(promptStore, promptWorkflow)
 const promptBoardPath = await saveBoard(promptBoardName, promptStore, boardRoot)
+const promptPreviewPath = resolveSvgPath(promptBoardName, boardRoot)
 const promptSummary = await summarizeBoard(promptBoardName, boardRoot)
 const promptRaw = JSON.parse(await fs.readFile(promptBoardPath, 'utf8')) as { records?: unknown[] }
 
@@ -110,6 +115,13 @@ try {
 
 if (!Array.isArray(raw.records)) throw new Error('Smoke board did not write a tldraw records array.')
 if (!Array.isArray(promptRaw.records)) throw new Error('Prompt smoke board did not write a tldraw records array.')
+if (!firstPreview.startsWith('<?xml') || !firstPreview.includes('<svg') || !firstPreview.includes('<rect')) {
+  throw new Error('Board save did not create a valid SVG preview.')
+}
+if (firstPreview === secondPreview) throw new Error('Appending a diagram did not refresh the SVG preview.')
+if (summary.svgPath !== previewPath) throw new Error('Board summary did not return the SVG preview path.')
+const promptPreview = await fs.readFile(promptPreviewPath, 'utf8')
+if (!promptPreview.includes('Visual stress &amp; workflow')) throw new Error('SVG preview did not escape label text.')
 if (summary.diagrams.length !== 2) throw new Error(`Expected 2 diagrams, found ${summary.diagrams.length}.`)
 if (!second.appended) throw new Error('Second diagram was not marked as appended.')
 if (promptWorkflow.connections.length !== 11) throw new Error('Prompt workflow did not retain dense connections.')
@@ -127,6 +139,7 @@ console.log(
     {
       boardName,
       boardPath,
+      previewPath,
       firstDiagram: first.diagramId,
       secondDiagram: second.diagramId,
       promptBoardPath,
@@ -142,7 +155,9 @@ console.log(
 
 if (!process.env.TLDRAW_MCP_KEEP_SMOKE_BOARD) {
   await fs.rm(boardPath, { force: true })
+  await fs.rm(previewPath, { force: true })
   await fs.rm(promptBoardPath, { force: true })
+  await fs.rm(promptPreviewPath, { force: true })
 }
 
 process.exit(0)

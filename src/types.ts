@@ -43,6 +43,7 @@ export interface ArchitectureDiagram {
 export interface BoardSummary {
   boardName: string
   boardPath: string
+  svgPath: string
   shapeCount: number
   shapesByType: Record<string, number>
   diagrams: Array<{

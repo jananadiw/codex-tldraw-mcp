@@ -22,3 +22,7 @@ export function normalizeBoardName(name = 'main') {
 export function boardPath(name = 'main', root = workspaceRoot()) {
   return path.join(boardsDir(root), `${normalizeBoardName(name)}.tldr`)
 }
+
+export function svgPath(name = 'main', root = workspaceRoot()) {
+  return path.join(boardsDir(root), `${normalizeBoardName(name)}.svg`)
+}

@@ -1,7 +1,7 @@
 import fs from 'node:fs/promises'
 import { appendArchitectureDiagram } from '../src/architectureBoard.js'
 import { buildArchitectureDiagram } from '../src/architectureDiagram.js'
-import { boardPath as resolveBoardPath } from '../src/paths.js'
+import { boardPath as resolveBoardPath, svgPath as resolveSvgPath } from '../src/paths.js'
 import { loadBoard, saveBoard, summarizeBoard } from '../src/tldrawBoard.js'
 import { withMcpClient } from './mcpSmokeClient.js'
 
@@ -95,7 +95,8 @@ await withMcpClient('architecture-smoke', async (client) => {
   if (
     result.isError ||
     readNumber(result.structuredContent, 'componentCount') !== architecture.components.length ||
-    readNumber(result.structuredContent, 'bindingCount') !== architecture.connections.length * 2
+    readNumber(result.structuredContent, 'bindingCount') !== architecture.connections.length * 2 ||
+    !readString(result.structuredContent, 'svgPath')
   ) {
     throw new Error('draw_architecture failed through the stdio MCP transport.')
   }
@@ -109,9 +110,14 @@ if (mcpSummary.diagrams[0]?.diagramType !== 'architecture') {
 const store = await loadBoard(boardName, boardRoot)
 const rendered = appendArchitectureDiagram(store, architecture)
 const boardPath = await saveBoard(boardName, store, boardRoot)
+const previewPath = resolveSvgPath(boardName, boardRoot)
 const raw = JSON.parse(await fs.readFile(boardPath, 'utf8')) as { records?: RawRecord[] }
+const preview = await fs.readFile(previewPath, 'utf8')
 
 if (!Array.isArray(raw.records)) throw new Error('Architecture smoke board did not write tldraw records.')
+if (!preview.includes('Handwriting font architecture') || !preview.includes('<path')) {
+  throw new Error('Architecture SVG preview is missing generated content.')
+}
 assertComponents(raw.records, rendered.diagramId)
 assertConnections(raw.records, rendered.diagramId)
 assertValidation()
@@ -121,6 +127,7 @@ console.log(
     {
       boardName,
       boardPath,
+      previewPath,
       diagramId: rendered.diagramId,
       componentCount: architecture.components.length,
       connectionCount: architecture.connections.length,
@@ -132,8 +139,12 @@ console.log(
   )
 )
 
-if (!process.env.TLDRAW_MCP_KEEP_SMOKE_BOARD) await fs.rm(boardPath, { force: true })
+if (!process.env.TLDRAW_MCP_KEEP_SMOKE_BOARD) {
+  await fs.rm(boardPath, { force: true })
+  await fs.rm(previewPath, { force: true })
+}
 await fs.rm(resolveBoardPath(mcpBoardName, boardRoot), { force: true })
+await fs.rm(resolveSvgPath(mcpBoardName, boardRoot), { force: true })
 process.exit(0)
 
 type RawRecord = {
@@ -286,4 +297,10 @@ function readNumber(value: unknown, key: string) {
   if (!value || typeof value !== 'object') return undefined
   const entry = (value as Record<string, unknown>)[key]
   return typeof entry === 'number' ? entry : undefined
+}
+
+function readString(value: unknown, key: string) {
+  if (!value || typeof value !== 'object') return undefined
+  const entry = (value as Record<string, unknown>)[key]
+  return typeof entry === 'string' ? entry : undefined
 }

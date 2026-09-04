@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.6.0
+
+- Exported a portable `.svg` preview beside every saved `.tldr` board without adding a browser runtime or dependency.
+- Returned the SVG path and MCP resource link from diagram tools so any MCP host can display or attach the result.
+- Added an SVG board resource with the standard `image/svg+xml` media type.
+- Kept code graph drift previews read-only while refreshing both artifacts when markers are applied.
+- Added smoke coverage for SVG creation, append refreshes, MCP transport metadata, and drift behavior.
+
 ## 0.5.0
 
 - Added `draw_architecture` for reverse-engineering runtime behavior across a codebase's main components.

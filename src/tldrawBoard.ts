@@ -16,7 +16,8 @@ import {
   TLStore,
   toRichText,
 } from 'tldraw'
-import { boardPath, boardsDir } from './paths.js'
+import { boardPath, boardsDir, svgPath } from './paths.js'
+import { renderBoardSvg } from './svgExport.js'
 import type {
   BoardSummary,
   CodeGraph,
@@ -110,13 +111,19 @@ export async function loadBoard(name = 'main', root?: string) {
 export async function saveBoard(name: string, store: TLStore, root?: string) {
   await fs.mkdir(boardsDir(root), { recursive: true })
   const filePath = boardPath(name, root)
+  const previewPath = svgPath(name, root)
   const data: TldrawFile = {
     tldrawFileFormatVersion: 1,
     schema: store.schema.serialize(),
     records: store.allRecords() as unknown as Array<Record<string, unknown>>,
   }
   const tmpPath = `${filePath}.tmp`
-  await fs.writeFile(tmpPath, `${JSON.stringify(data, null, 2)}\n`)
+  const tmpPreviewPath = `${previewPath}.tmp`
+  await Promise.all([
+    fs.writeFile(tmpPath, `${JSON.stringify(data, null, 2)}\n`),
+    fs.writeFile(tmpPreviewPath, renderBoardSvg(store)),
+  ])
+  await fs.rename(tmpPreviewPath, previewPath)
   await fs.rename(tmpPath, filePath)
   return filePath
 }
@@ -290,6 +297,7 @@ export async function summarizeBoard(name = 'main', root?: string): Promise<Boar
   return {
     boardName: name,
     boardPath: boardPath(name, root),
+    svgPath: svgPath(name, root),
     shapeCount: shapes.length,
     shapesByType,
     diagrams: [...diagrams.entries()].map(([diagramId, entry]) => ({
