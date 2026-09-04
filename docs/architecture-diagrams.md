@@ -4,7 +4,7 @@
 
 1. Codex reads the repository.
 2. Codex identifies the main user flow and its supporting services.
-3. The MCP server validates the small model and renders a repo-local `.tldr` board.
+3. The MCP server validates the small model and renders a repo-local `.tldr` board with a matching `.svg` preview.
 
 The goal is understanding, not exhaustive documentation.
 
