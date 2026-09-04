@@ -3,13 +3,13 @@ import type { ProductWorkflow, WorkflowConnection, WorkflowStep } from './types.
 
 const STEP_ID_PATTERN = /^[a-zA-Z0-9._-]+$/
 
-export interface PromptWorkflowStep {
+interface PromptWorkflowStep {
   id?: string
   label: string
   detail?: string
 }
 
-export interface PromptWorkflowConnection {
+interface PromptWorkflowConnection {
   from: string
   to: string
   label?: string

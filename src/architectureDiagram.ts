@@ -13,7 +13,7 @@ When drawing repository architecture, keep the result simple and useful to someo
 The reader should understand the main path first, then see supporting services below it.
 `.trim()
 
-export interface ArchitectureComponentInput {
+interface ArchitectureComponentInput {
   id: string
   label: string
   actions: string[]
@@ -21,7 +21,7 @@ export interface ArchitectureComponentInput {
   evidence?: string[]
 }
 
-export interface ArchitectureConnectionInput {
+interface ArchitectureConnectionInput {
   from: string
   to: string
   call: string
