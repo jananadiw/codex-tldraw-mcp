@@ -16,3 +16,15 @@ export async function withMcpClient(name: string, run: (client: Client) => Promi
     await client.close()
   }
 }
+
+export function readNumber(value: unknown, key: string) {
+  if (!value || typeof value !== 'object') return undefined
+  const entry = (value as Record<string, unknown>)[key]
+  return typeof entry === 'number' ? entry : undefined
+}
+
+export function readString(value: unknown, key: string) {
+  if (!value || typeof value !== 'object') return undefined
+  const entry = (value as Record<string, unknown>)[key]
+  return typeof entry === 'string' ? entry : undefined
+}
