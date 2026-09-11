@@ -3,7 +3,7 @@ import { appendArchitectureDiagram } from '../src/architectureBoard.js'
 import { buildArchitectureDiagram } from '../src/architectureDiagram.js'
 import { boardPath as resolveBoardPath, svgPath as resolveSvgPath } from '../src/paths.js'
 import { loadBoard, saveBoard, summarizeBoard } from '../src/tldrawBoard.js'
-import { withMcpClient } from './mcpSmokeClient.js'
+import { readNumber, readString, withMcpClient } from './mcpSmokeClient.js'
 
 const boardName = `architecture-smoke-${Date.now().toString(36)}`
 const mcpBoardName = `${boardName}-mcp`
@@ -291,16 +291,4 @@ function expectError(action: () => unknown, message: string) {
     throw error
   }
   throw new Error(`Expected validation error containing "${message}".`)
-}
-
-function readNumber(value: unknown, key: string) {
-  if (!value || typeof value !== 'object') return undefined
-  const entry = (value as Record<string, unknown>)[key]
-  return typeof entry === 'number' ? entry : undefined
-}
-
-function readString(value: unknown, key: string) {
-  if (!value || typeof value !== 'object') return undefined
-  const entry = (value as Record<string, unknown>)[key]
-  return typeof entry === 'string' ? entry : undefined
 }

@@ -13,7 +13,7 @@ import {
   saveBoard,
   summarizeBoard,
 } from '../src/tldrawBoard.js'
-import { withMcpClient } from './mcpSmokeClient.js'
+import { readNumber, readString, withMcpClient } from './mcpSmokeClient.js'
 
 const root = await fs.mkdtemp(path.join(os.tmpdir(), 'codex-tldraw-code-graph-'))
 const resolvedRoot = await fs.realpath(root)
@@ -480,18 +480,6 @@ function readRecord(value: unknown, key: string): Record<string, unknown> {
   if (!value || typeof value !== 'object') return {}
   const entry = (value as Record<string, unknown>)[key]
   return entry && typeof entry === 'object' ? entry as Record<string, unknown> : {}
-}
-
-function readNumber(value: unknown, key: string) {
-  if (!value || typeof value !== 'object') return undefined
-  const entry = (value as Record<string, unknown>)[key]
-  return typeof entry === 'number' ? entry : undefined
-}
-
-function readString(value: unknown, key: string) {
-  if (!value || typeof value !== 'object') return undefined
-  const entry = (value as Record<string, unknown>)[key]
-  return typeof entry === 'string' ? entry : undefined
 }
 
 function hasSvgResourceLink(content: unknown) {
