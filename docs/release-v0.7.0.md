@@ -19,11 +19,15 @@ codex plugin marketplace add "$(npm root -g)/codex-tldraw-mcp"
 codex plugin add codex-tldraw@codex-tldraw-mcp
 ```
 
-From this Git repository (runs `npm run build` on first launch if `dist/` is missing):
+From this Git repository (requires manual build on first use):
 
 ```bash
 codex plugin marketplace add jananadiw/codex-tldraw-mcp
 codex plugin add codex-tldraw@codex-tldraw-mcp
+# Build the plugin before first use:
+cd ~/.codex/plugins/cache/codex-tldraw-mcp/codex-tldraw/0.7.0
+npm install
+npm run build
 ```
 
 ## Compatibility
