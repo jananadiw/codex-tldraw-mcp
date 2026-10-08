@@ -3,6 +3,7 @@ import { existsSync, readFileSync } from 'node:fs'
 import { spawn } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
+import { homedir } from 'node:os'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const distIndex = join(__dirname, 'dist', 'index.js')
@@ -19,12 +20,20 @@ if (existsSync(distIndex)) {
   process.stderr.write(`dist/ not found, falling back to published package: ${packageSpec}\n`)
   
   const npx = spawn('npx', ['-y', packageSpec], {
+    cwd: homedir(),
     stdio: 'inherit',
     env: process.env,
   })
   
-  npx.on('exit', (code) => {
-    process.exit(code ?? 1)
+  process.on('SIGTERM', () => npx.kill('SIGTERM'))
+  process.on('SIGINT', () => npx.kill('SIGINT'))
+  
+  npx.on('exit', (code, signal) => {
+    if (signal) {
+      process.kill(process.pid, signal)
+    } else {
+      process.exit(code ?? 1)
+    }
   })
   
   npx.on('error', (err) => {
