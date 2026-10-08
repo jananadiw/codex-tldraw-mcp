@@ -1,17 +1,17 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.jananadiw/codex-tldraw-mcp",
-  "description": "Generates repo-local tldraw diagrams, portable SVG previews, and code graph drift via stdio MCP.",
+  "description": "Generates repo-local tldraw diagrams, portable SVG previews, code graph drift, and a Codex plugin with an editable tldraw MCP App.",
   "repository": {
     "url": "https://github.com/jananadiw/codex-tldraw-mcp",
     "source": "github"
   },
-  "version": "0.6.0",
+  "version": "0.7.0",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "codex-tldraw-mcp",
-      "version": "0.6.0",
+      "version": "0.7.0",
       "transport": {
         "type": "stdio"
       },

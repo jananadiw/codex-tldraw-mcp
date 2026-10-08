@@ -1,0 +1,20 @@
+{
+  "name": "codex-tldraw-mcp",
+  "interface": {
+    "displayName": "Codex tldraw"
+  },
+  "plugins": [
+    {
+      "name": "codex-tldraw",
+      "source": {
+        "source": "local",
+        "path": "."
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Developer Tools"
+    }
+  ]
+}

@@ -45,8 +45,49 @@ try {
   assertCounts(initialGraph.unresolvedImports.length, 0, 'initial unresolved imports')
   await withMcpClient('code-graph-smoke', async (client) => {
     const tools = await client.listTools()
-    for (const toolName of ['diagram_code_graph', 'compare_code_graph', 'diagram_repo', 'draw_canvas']) {
+    for (const toolName of [
+      'diagram_code_graph',
+      'compare_code_graph',
+      'diagram_repo',
+      'draw_canvas',
+      'open_tldraw_file',
+    ]) {
       if (!tools.tools.some((tool) => tool.name === toolName)) throw new Error(`MCP server did not register ${toolName}.`)
+    }
+    if (!tools.tools.some((tool) => tool.name === 'save_board')) {
+      throw new Error('The tldraw MCP App did not register save_board.')
+    }
+    const appTool = tools.tools.find((tool) => tool.name === 'open_tldraw_file')
+    const appEntrypoints = (
+      appTool?._meta?.['openai/ui'] as { entrypoints?: Array<{ type?: string; extensions?: string[] }> } | undefined
+    )?.entrypoints
+    if (!appEntrypoints?.some((entrypoint) => entrypoint.type === 'file' && entrypoint.extensions?.includes('.tldr'))) {
+      throw new Error('The tldraw MCP App tool did not advertise its .tldr file entrypoint.')
+    }
+    const appResult = await client.callTool({
+      name: 'open_tldraw_file',
+      arguments: {
+        file: {
+          name: 'main.tldr',
+          resourceUri: 'host-resource://main',
+        },
+      },
+    })
+    const appStructuredContent = appResult.structuredContent as Record<string, unknown> | undefined
+    if (
+      appResult.isError ||
+      readString(appStructuredContent?.file, 'resourceUri') !== 'host-resource://main'
+    ) {
+      throw new Error('The tldraw MCP App tool did not preserve its host-managed file input.')
+    }
+    const appResource = await client.readResource({ uri: 'ui://codex-tldraw/board.html' })
+    const appContents = appResource.contents[0]
+    if (
+      appContents?.mimeType !== 'text/html;profile=mcp-app' ||
+      !('text' in appContents) ||
+      !appContents.text.includes('<div id="root"></div>')
+    ) {
+      throw new Error('The tldraw MCP App resource did not return its bundled HTML.')
     }
     const result = await client.callTool({
       name: 'diagram_code_graph',

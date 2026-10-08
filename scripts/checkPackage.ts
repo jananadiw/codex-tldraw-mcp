@@ -1,16 +1,22 @@
 import { spawnSync } from 'node:child_process'
 import fs from 'node:fs'
 
-const maximumPackageSize = 250_000
+const maximumPackageSize = 800_000
 const excludedFiles = new Set([
   'assets/github-project-preview-minimal-under-1mb.jpg',
   'assets/tldrawmcp.gif',
+  'assets/codex-tldraw-v0.3.0-demo.mov',
 ])
 const requiredFiles = [
+  '.codex-plugin/plugin.json',
+  '.mcp.json',
   'CHANGELOG.md',
   'LICENSE',
   'README.md',
   'SECURITY.md',
+  'assets/icon-dark.svg',
+  'assets/icon.svg',
+  'dist/app.html',
   'dist/index.js',
   'package.json',
   'server.json',
@@ -29,6 +35,10 @@ type ServerManifest = {
   }>
 }
 
+type PluginManifest = {
+  version: string
+}
+
 type PackResult = {
   name: string
   version: string
@@ -38,11 +48,16 @@ type PackResult = {
 
 const packageManifest = readJson<PackageManifest>('package.json')
 const serverManifest = readJson<ServerManifest>('server.json')
+const pluginManifest = readJson<PluginManifest>('.codex-plugin/plugin.json')
 const npmPackage = serverManifest.packages.find((entry) => entry.identifier === packageManifest.name)
 
-if (serverManifest.version !== packageManifest.version || npmPackage?.version !== packageManifest.version) {
+if (
+  serverManifest.version !== packageManifest.version ||
+  npmPackage?.version !== packageManifest.version ||
+  pluginManifest.version !== packageManifest.version
+) {
   throw new Error(
-    `Release versions are inconsistent: package.json=${packageManifest.version}, server.json=${serverManifest.version}, registry package=${npmPackage?.version ?? 'missing'}.`
+    `Release versions are inconsistent: package.json=${packageManifest.version}, server.json=${serverManifest.version}, registry package=${npmPackage?.version ?? 'missing'}, plugin=${pluginManifest.version}.`
   )
 }
 

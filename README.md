@@ -56,7 +56,49 @@ The default outputs are:
 
 Open the `.tldr` board in a tldraw-compatible viewer to edit it. Any MCP host, browser, documentation system, or code review can display the `.svg` preview directly.
 
-See the [v0.6.0 release notes](docs/release-v0.6.0.md) for compatibility and verification details.
+See the [v0.7.0 release notes](docs/release-v0.7.0.md) for the Codex plugin and verification details.
+
+## Codex Plugin
+
+This repository also packages the server as a Codex plugin. The existing MCP tools still write `.tldr` and `.svg` files; the plugin adds a `.tldr` file handler that opens the editable board in an embedded React/tldraw app.
+
+Two paths open the same editor:
+
+**Diagram tool panel** — After `draw_canvas`, `diagram_repo`, or similar tools run, the inline MCP App loads the board from the server resource `tldraw://boards/<name>/file` and saves through the app-only `save_board` tool.
+
+**`.tldr` file entrypoint** — When Codex opens a repo file directly, the app uses the host file resource API (`open_tldraw_file`). Writable files save with ETag conflict protection.
+
+Build the server and its single-file app:
+
+```bash
+bun install
+bun run build
+```
+
+Install the published plugin from npm (recommended):
+
+```bash
+npm install -g codex-tldraw-mcp
+codex plugin marketplace add "$(npm root -g)/codex-tldraw-mcp"
+codex plugin add codex-tldraw@codex-tldraw-mcp
+```
+
+Or install from GitHub (runs `prepare` to build `dist/` when needed):
+
+```bash
+codex plugin marketplace add jananadiw/codex-tldraw-mcp
+codex plugin add codex-tldraw@codex-tldraw-mcp
+```
+
+For development from this checkout:
+
+```bash
+bun run build
+codex plugin marketplace add .
+codex plugin add codex-tldraw@codex-tldraw-mcp
+```
+
+The marketplace descriptor is `.agents/plugins/marketplace.json`, the plugin manifest is `.codex-plugin/plugin.json`, its MCP configuration is `.mcp.json`, and the bundled app is `dist/app.html`. MCP hosts without app support continue to use the existing text results, `.tldr` resources, and SVG previews.
 
 ## What You Get
 

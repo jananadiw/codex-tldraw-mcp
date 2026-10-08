@@ -1,7 +1,9 @@
 import { McpServer, ResourceTemplate } from '@modelcontextprotocol/sdk/server/mcp.js'
+import { registerAppResource, registerAppTool, RESOURCE_MIME_TYPE } from '@modelcontextprotocol/ext-apps/server'
 import { z } from 'zod'
 import fs from 'node:fs/promises'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { appendArchitectureDiagram } from './architectureBoard.js'
 import { ARCHITECTURE_ANALYSIS_INSTRUCTIONS, buildArchitectureDiagram } from './architectureDiagram.js'
 import { compareCodeGraphs } from './codeGraphDrift.js'
@@ -20,6 +22,17 @@ import { boardPath, normalizeBoardName, svgPath, workspaceRoot } from './paths.j
 import { buildPromptWorkflow } from './promptWorkflow.js'
 import { scanRepo } from './repoScanner.js'
 import type { ProductWorkflow } from './types.js'
+
+const TLDRAW_APP_URI = 'ui://codex-tldraw/board.html'
+const DIAGRAM_TOOL_UI_META = {
+  _meta: {
+    ui: { resourceUri: TLDRAW_APP_URI },
+  },
+} as const
+const serverFilePath = fileURLToPath(import.meta.url)
+const appHtmlPath = serverFilePath.endsWith('.ts')
+  ? path.resolve(path.dirname(serverFilePath), '../dist/app.html')
+  : path.resolve(path.dirname(serverFilePath), 'app.html')
 
 const repoPathInput = z
   .string()
@@ -168,7 +181,7 @@ export function createServer() {
   const server = new McpServer(
     {
       name: 'codex-tldraw-mcp',
-      version: '0.6.0',
+      version: '0.7.0',
     },
     {
       instructions: [
@@ -176,6 +189,136 @@ export function createServer() {
         ARCHITECTURE_ANALYSIS_INSTRUCTIONS,
       ].join('\n\n'),
     }
+  )
+
+  registerAppTool(
+    server,
+    'open_tldraw_file',
+    {
+      title: 'Open tldraw board',
+      description: 'Opens a .tldr file in an interactive tldraw editor.',
+      inputSchema: {
+        file: z.object({
+          name: z.string().min(1),
+          resourceUri: z.string().trim().min(1),
+        }),
+      },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+      },
+      _meta: {
+        ui: { resourceUri: TLDRAW_APP_URI },
+        'openai/ui': {
+          entrypoints: [{ type: 'file', extensions: ['.tldr'] }],
+        },
+      },
+    },
+    async ({ file }) => ({
+      structuredContent: { file },
+      content: [
+        {
+          type: 'text',
+          text: `Opened ${file.name} in the interactive tldraw editor.`,
+        },
+      ],
+    })
+  )
+
+  registerAppTool(
+    server,
+    'save_board',
+    {
+      title: 'Save tldraw board',
+      description: 'Writes .tldr and SVG preview updates from the MCP App editor.',
+      inputSchema: {
+        boardName: z.string().min(1),
+        repoPath: repoPathInput,
+        tldrJson: z.string().min(1),
+      },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+      },
+      _meta: {
+        ui: {
+          resourceUri: TLDRAW_APP_URI,
+          visibility: ['app'],
+        },
+      },
+    },
+    async ({ boardName, repoPath, tldrJson }) => {
+      const resolvedRepoPath = await resolveToolRepoPath(repoPath ?? workspaceRoot())
+      const normalizedBoardName = normalizeBoardName(boardName)
+      let parsed: unknown
+      try {
+        parsed = JSON.parse(tldrJson)
+      } catch {
+        throw new Error('tldrJson is not valid JSON.')
+      }
+      if (!parsed || typeof parsed !== 'object') {
+        throw new Error('tldrJson must be a tldraw file object.')
+      }
+
+      const filePath = boardPath(normalizedBoardName, resolvedRepoPath)
+      const tmpPath = `${filePath}.tmp`
+      const payload = tldrJson.endsWith('\n') ? tldrJson : `${tldrJson}\n`
+      await fs.writeFile(tmpPath, payload)
+      await fs.rename(tmpPath, filePath)
+
+      const store = await loadBoard(normalizedBoardName, resolvedRepoPath)
+      const writtenPath = await saveBoard(normalizedBoardName, store, resolvedRepoPath)
+
+      return {
+        structuredContent: {
+          boardName: normalizedBoardName,
+          boardPath: writtenPath,
+          svgPath: svgPath(normalizedBoardName, resolvedRepoPath),
+          repoPath: resolvedRepoPath,
+        },
+        content: [
+          {
+            type: 'text',
+            text: `Saved board "${normalizedBoardName}" to ${writtenPath}.`,
+          },
+        ],
+      }
+    }
+  )
+
+  registerAppResource(
+    server,
+    'codex-tldraw-editor',
+    TLDRAW_APP_URI,
+    {
+      title: 'tldraw board editor',
+      description: 'Interactive viewer and editor for .tldr board files.',
+      mimeType: RESOURCE_MIME_TYPE,
+    },
+    async () => ({
+      contents: [
+        {
+          uri: TLDRAW_APP_URI,
+          mimeType: RESOURCE_MIME_TYPE,
+          text: await fs.readFile(appHtmlPath, 'utf8'),
+          _meta: {
+            ui: {
+              prefersBorder: false,
+              csp: {
+                connectDomains: ['https://cdn.tldraw.com'],
+                resourceDomains: ['https://cdn.tldraw.com'],
+              },
+            },
+            'openai/ui': {
+              preferredDisplayMode: 'fullscreen',
+              availableDisplayModes: ['inline', 'fullscreen'],
+            },
+          },
+        },
+      ],
+    })
   )
 
   server.registerTool(
@@ -190,6 +333,7 @@ export function createServer() {
         destructiveHint: false,
         idempotentHint: false,
       },
+      ...DIAGRAM_TOOL_UI_META,
     },
     async ({ repoPath = workspaceRoot(), boardName = 'main' }) => {
       const resolvedRepoPath = await resolveToolRepoPath(repoPath)
@@ -238,6 +382,7 @@ export function createServer() {
         destructiveHint: false,
         idempotentHint: true,
       },
+      ...DIAGRAM_TOOL_UI_META,
     },
     async ({
       repoPath = workspaceRoot(),
@@ -293,6 +438,7 @@ export function createServer() {
         destructiveHint: false,
         idempotentHint: false,
       },
+      ...DIAGRAM_TOOL_UI_META,
     },
     async ({ repoPath = workspaceRoot(), boardName = 'main' }) => {
       const resolvedRepoPath = await resolveToolRepoPath(repoPath)
@@ -326,6 +472,7 @@ export function createServer() {
         destructiveHint: false,
         idempotentHint: false,
       },
+      ...DIAGRAM_TOOL_UI_META,
     },
     async ({ repoPath = workspaceRoot(), boardName = 'main', title, steps, connections }) => {
       const resolvedRepoPath = await resolveToolRepoPath(repoPath)
@@ -359,6 +506,7 @@ export function createServer() {
         destructiveHint: false,
         idempotentHint: false,
       },
+      ...DIAGRAM_TOOL_UI_META,
     },
     async ({
       repoPath = workspaceRoot(),
