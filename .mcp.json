@@ -2,7 +2,7 @@
   "mcpServers": {
     "codex-tldraw-app": {
       "command": "node",
-      "args": ["./dist/index.js"],
+      "args": ["./launcher.js"],
       "cwd": "."
     }
   }

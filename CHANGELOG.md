@@ -11,6 +11,8 @@
 - Fixed MCP App loading after diagram tools by reading `tldraw://boards/.../file` through the host-proxied server resource API instead of requiring OpenAI file resources.
 - Added app-only `save_board` and linked diagram tools to the bundled editor via `_meta.ui.resourceUri`.
 - Added `prepare` so Git or npm plugin installs build `dist/` when artifacts are missing.
+- Fixed npm install path by including `.agents/plugins/marketplace.json` in the package.
+- Fixed Git install path by adding a launcher that builds on first run when `dist/` is missing.
 
 ## 0.6.0
 
