@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "codex-tldraw-app": {
+      "command": "node",
+      "args": ["./dist/index.js"],
+      "cwd": "."
+    }
+  }
+}

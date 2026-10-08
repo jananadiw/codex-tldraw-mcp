@@ -1,0 +1,93 @@
+:root {
+  color-scheme: light dark;
+  font-family: var(--font-sans, ui-sans-serif, system-ui, sans-serif);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+}
+
+button {
+  font: inherit;
+}
+
+.app-shell {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  width: 100%;
+  height: 100%;
+  min-height: 420px;
+  background: var(--color-background-primary, #f8f7f4);
+  color: var(--color-text-primary, #242424);
+}
+
+.app-header {
+  display: flex;
+  min-height: 48px;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--color-border-secondary, #dedbd4);
+  background: var(--color-background-secondary, #fff);
+}
+
+.app-title {
+  min-width: 0;
+  flex: 1;
+}
+
+.app-title strong,
+.app-title span {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.app-title span {
+  margin-top: 2px;
+  color: var(--color-text-secondary, #6b6862);
+  font-size: 12px;
+}
+
+.save-button {
+  min-height: 32px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: var(--border-radius-md, 8px);
+  background: var(--color-background-inverse, #1f1f1f);
+  color: var(--color-text-inverse, #fff);
+  cursor: var(--cursor-interaction, pointer);
+}
+
+.save-button:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+
+.editor-frame {
+  position: relative;
+  min-height: 0;
+}
+
+.centered-message {
+  display: grid;
+  height: 100%;
+  place-items: center;
+  padding: 32px;
+  color: var(--color-text-secondary, #6b6862);
+  text-align: center;
+}
+
+.centered-message.error {
+  color: var(--color-text-danger, #b42318);
+}
