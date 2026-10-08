@@ -12,7 +12,7 @@
 - Added app-only `save_board` and linked diagram tools to the bundled editor via `_meta.ui.resourceUri`.
 - Added `prepare` so Git or npm plugin installs build `dist/` when artifacts are missing.
 - Fixed npm install path by including `.agents/plugins/marketplace.json` in the package.
-- Fixed Git install path by adding a launcher and documenting the required build step.
+- Fixed Git install path by adding a launcher that falls back to the published npm package when `dist/` is missing.
 
 ## 0.6.0
 

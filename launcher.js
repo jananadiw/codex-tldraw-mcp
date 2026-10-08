@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-import { existsSync } from 'node:fs'
-import { spawnSync } from 'node:child_process'
+import { existsSync, readFileSync } from 'node:fs'
+import { spawn } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 
@@ -13,23 +13,22 @@ if (existsSync(distIndex)) {
     await main()
   }
 } else {
-  console.error('Error: dist/index.js not found. Building now...')
-  const build = spawnSync('npm', ['run', 'build'], {
-    cwd: __dirname,
+  const packageJson = JSON.parse(readFileSync(join(__dirname, 'package.json'), 'utf8'))
+  const packageSpec = `${packageJson.name}@${packageJson.version}`
+  
+  process.stderr.write(`dist/ not found, falling back to published package: ${packageSpec}\n`)
+  
+  const npx = spawn('npx', ['-y', packageSpec], {
     stdio: 'inherit',
     env: process.env,
   })
   
-  if (build.status !== 0) {
-    console.error('\nBuild failed. If you installed from Git, please run:')
-    console.error('  cd', __dirname)
-    console.error('  npm install')
-    console.error('  npm run build')
-    process.exit(1)
-  }
+  npx.on('exit', (code) => {
+    process.exit(code ?? 1)
+  })
   
-  const { default: main } = await import(distIndex)
-  if (typeof main === 'function') {
-    await main()
-  }
+  npx.on('error', (err) => {
+    process.stderr.write(`Failed to run ${packageSpec}: ${err.message}\n`)
+    process.exit(1)
+  })
 }
