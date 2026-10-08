@@ -1,12 +1,13 @@
-import fs from 'node:fs'
+#!/usr/bin/env node
+import { existsSync } from 'node:fs'
 import { spawnSync } from 'node:child_process'
 
 const required = ['dist/index.js', 'dist/app.html']
-if (required.every((file) => fs.existsSync(file))) {
+if (required.every((file) => existsSync(file))) {
   process.exit(0)
 }
 
-if (!fs.existsSync('scripts') || !fs.existsSync('src')) {
+if (!existsSync('scripts') || !existsSync('src')) {
   console.log('Skipping build: source files not available (packaged installation)')
   process.exit(0)
 }

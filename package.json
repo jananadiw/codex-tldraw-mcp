@@ -10,6 +10,7 @@
   },
   "main": "dist/index.js",
   "files": [
+    ".agents/plugins",
     ".codex-plugin",
     ".mcp.json",
     "CHANGELOG.md",
@@ -25,6 +26,8 @@
     "docs/release-v0.5.0.md",
     "docs/release-v0.6.0.md",
     "docs/release-v0.7.0.md",
+    "launcher.js",
+    "prepare.js",
     "README.md",
     "LICENSE",
     "SECURITY.md",
@@ -44,7 +47,7 @@
     "smoke": "bun scripts/smoke.ts && bun scripts/codeGraphSmoke.ts && bun scripts/architectureSmoke.ts",
     "test": "bun run smoke",
     "prepack": "bun run build",
-    "prepare": "bun scripts/ensureBuilt.ts"
+    "prepare": "node prepare.js"
   },
   "keywords": [
     "mcp",
