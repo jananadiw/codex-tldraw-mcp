@@ -10,11 +10,11 @@ const excludedFiles = new Set([
 const requiredFiles = [
   '.agents/plugins/marketplace.json',
   '.codex-plugin/plugin.json',
+  'launcher.js',
+  'prepare.js',
   '.mcp.json',
   'CHANGELOG.md',
-  'launcher.js',
   'LICENSE',
-  'prepare.js',
   'README.md',
   'SECURITY.md',
   'assets/icon-dark.svg',

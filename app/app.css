@@ -25,7 +25,7 @@ button {
   grid-template-rows: auto minmax(0, 1fr);
   width: 100%;
   height: 100%;
-  min-height: 420px;
+  min-height: 0;
   background: var(--color-background-primary, #f8f7f4);
   color: var(--color-text-primary, #242424);
 }
@@ -86,6 +86,7 @@ button {
   padding: 32px;
   color: var(--color-text-secondary, #6b6862);
   text-align: center;
+  overflow-wrap: anywhere;
 }
 
 .centered-message.error {
