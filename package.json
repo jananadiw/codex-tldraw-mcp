@@ -1,6 +1,6 @@
 {
   "name": "codex-tldraw-mcp",
-  "version": "0.7.0",
+  "version": "0.7.1",
   "mcpName": "io.github.jananadiw/codex-tldraw-mcp",
   "description": "A stdio MCP server for repo-local tldraw diagrams, portable SVG previews, and code graph drift detection.",
   "type": "module",
@@ -25,26 +25,31 @@
     "docs/release-v0.5.0.md",
     "docs/release-v0.6.0.md",
     "docs/release-v0.7.0.md",
+    "docs/release-v0.7.1.md",
     "README.md",
     "LICENSE",
     "SECURITY.md",
     "server.json",
-    "package.json"
+    "package.json",
+    ".agents/plugins/marketplace.json",
+    "launcher.js",
+    "prepare.js"
   ],
   "engines": {
     "node": ">=20.11.0"
   },
   "scripts": {
-    "build": "bun run build:ui && bun run build:server && bun run typecheck:app",
+    "build": "npm run build:ui && npm run build:server && npm run typecheck:app",
     "build:server": "tsc -p tsconfig.json && tsc -p tsconfig.check.json --noEmit",
     "build:ui": "vite build --logLevel error",
     "typecheck:app": "tsc -p tsconfig.app.json --noEmit",
     "dev": "bun src/index.ts",
     "check:package": "bun scripts/checkPackage.ts",
-    "smoke": "bun scripts/smoke.ts && bun scripts/codeGraphSmoke.ts && bun scripts/architectureSmoke.ts",
+    "smoke": "bun scripts/smoke.ts && bun scripts/codeGraphSmoke.ts && bun scripts/architectureSmoke.ts && bun scripts/robustnessSmoke.ts",
     "test": "bun run smoke",
-    "prepack": "bun run build",
-    "prepare": "bun scripts/ensureBuilt.ts"
+    "prepack": "npm run build",
+    "prepare": "node prepare.js",
+    "check:plugin": "bun scripts/pluginSmoke.ts"
   },
   "keywords": [
     "mcp",
@@ -79,15 +84,17 @@
   "dependencies": {
     "@modelcontextprotocol/ext-apps": "1.7.5",
     "@modelcontextprotocol/sdk": "^1.29.0",
+    "proper-lockfile": "4.1.2",
     "react": "19.2.1",
     "react-dom": "19.2.1",
-    "tldraw": "^5.1.1",
+    "tldraw": "5.1.1",
     "typescript": "^6.0.3",
     "zod": "^4.4.3"
   },
   "devDependencies": {
     "@openai/mcp-extensions": "0.1.0",
     "@types/node": "^25.9.2",
+    "@types/proper-lockfile": "4.1.4",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^6.1.2",

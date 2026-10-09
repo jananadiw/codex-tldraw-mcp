@@ -1,4 +1,6 @@
 import fs from 'node:fs/promises'
+import path from 'node:path'
+import { createHash, randomUUID } from 'node:crypto'
 import {
   CameraRecordType,
   createShapeId,
@@ -83,8 +85,12 @@ const CODE_GRAPH_METADATA_VERSION = 1
 
 export async function listBoardNames(root?: string) {
   try {
-    const entries = await fs.readdir(boardsDir(root))
-    return entries.filter((entry) => entry.endsWith('.tldr')).map((entry) => entry.slice(0, -5)).sort()
+    await assertBoardLocation(boardsDir(root), root, true)
+    const entries = await fs.readdir(boardsDir(root), { withFileTypes: true })
+    return entries
+      .filter((entry) => entry.isFile() && entry.name.endsWith('.tldr'))
+      .map((entry) => entry.name.slice(0, -5))
+      .sort()
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
     return []
@@ -94,21 +100,63 @@ export async function listBoardNames(root?: string) {
 export async function loadBoard(name = 'main', root?: string) {
   const filePath = boardPath(name, root)
   try {
-    const data = JSON.parse(await fs.readFile(filePath, 'utf8')) as TldrawFile
-    const records = Object.fromEntries(data.records.map((record) => [String(record.id), record]))
-    return createTLStore({
-      shapeUtils: defaultShapeUtils,
-      bindingUtils: defaultBindingUtils,
-      snapshot: { store: records, schema: data.schema } as never,
-      defaultName: name,
-    })
+    return parseBoardFile(await readBoardFile(name, root), name)
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
     return createEmptyBoard(name)
   }
 }
 
+export function parseBoardFile(json: string, name = 'main') {
+  const data = JSON.parse(json) as TldrawFile
+  if (data?.tldrawFileFormatVersion !== 1 || !data.schema || !Array.isArray(data.records)) {
+    throw new Error('Invalid tldraw file: expected format version 1, schema, and records.')
+  }
+  const records: Record<string, Record<string, unknown>> = Object.create(null)
+  for (const record of data.records) {
+    if (!record || typeof record.id !== 'string' || records[record.id]) {
+      throw new Error('Invalid tldraw file: missing or duplicate record id.')
+    }
+    records[record.id] = record
+  }
+  return createTLStore({
+    shapeUtils: defaultShapeUtils,
+    bindingUtils: defaultBindingUtils,
+    snapshot: { store: records, schema: data.schema } as never,
+    defaultName: name,
+  })
+}
+
+export function boardEtag(text: string) {
+  return createHash('sha256').update(text).digest('hex')
+}
+
+export async function assertBoardLocation(filePath: string, root = process.cwd(), allowDirectory = false) {
+  const realRoot = await fs.realpath(root)
+  for (const candidate of [boardsDir(root), filePath]) {
+    try {
+      const actual = await fs.realpath(candidate)
+      if (!allowDirectory && candidate === filePath && !(await fs.stat(actual)).isFile()) {
+        throw new Error(`Board file is not a regular file: ${candidate}`)
+      }
+      const relative = path.relative(realRoot, actual)
+      if (relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
+        throw new Error(`Board path resolves outside the repository: ${candidate}`)
+      }
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+    }
+  }
+}
+
+export async function readBoardFile(name: string, root?: string) {
+  const filePath = boardPath(name, root)
+  await assertBoardLocation(filePath, root)
+  return fs.readFile(filePath, 'utf8')
+}
+
 export async function saveBoard(name: string, store: TLStore, root?: string) {
+  await assertBoardLocation(boardPath(name, root), root)
   await fs.mkdir(boardsDir(root), { recursive: true })
   const filePath = boardPath(name, root)
   const previewPath = svgPath(name, root)
@@ -117,14 +165,21 @@ export async function saveBoard(name: string, store: TLStore, root?: string) {
     schema: store.schema.serialize(),
     records: store.allRecords() as unknown as Array<Record<string, unknown>>,
   }
-  const tmpPath = `${filePath}.tmp`
-  const tmpPreviewPath = `${previewPath}.tmp`
-  await Promise.all([
-    fs.writeFile(tmpPath, `${JSON.stringify(data, null, 2)}\n`),
-    fs.writeFile(tmpPreviewPath, renderBoardSvg(store)),
-  ])
-  await fs.rename(tmpPreviewPath, previewPath)
-  await fs.rename(tmpPath, filePath)
+  const token = randomUUID()
+  const tmpPath = `${filePath}.${token}.tmp`
+  const tmpPreviewPath = `${previewPath}.${token}.tmp`
+  const json = `${JSON.stringify(data, null, 2)}\n`
+  const svg = renderBoardSvg(store)
+  try {
+    const writes = await Promise.allSettled([fs.writeFile(tmpPath, json), fs.writeFile(tmpPreviewPath, svg)])
+    for (const result of writes) {
+      if (result.status === 'rejected') throw result.reason
+    }
+    await fs.rename(tmpPreviewPath, previewPath)
+    await fs.rename(tmpPath, filePath)
+  } finally {
+    await Promise.all([fs.rm(tmpPath, { force: true }), fs.rm(tmpPreviewPath, { force: true })])
+  }
   return filePath
 }
 
@@ -132,7 +187,7 @@ export function appendWorkflowDiagram(store: TLStore, workflow: ProductWorkflow)
   const existingBounds = getShapeBounds(store)
   const offsetX = existingBounds ? existingBounds.maxX + DIAGRAM_GAP : 0
   const offsetY = existingBounds ? existingBounds.minY : 0
-  const diagramId = `workflow-${Date.now().toString(36)}`
+  const diagramId = `workflow-${randomUUID()}`
   const shapes = buildDiagramShapes(store, workflow, diagramId, offsetX, offsetY, workflowMetadata(workflow, diagramId))
   store.put(shapes)
   return {
@@ -146,7 +201,7 @@ export function appendCodeGraphDiagram(store: TLStore, graph: CodeGraph) {
   const existingBounds = getShapeBounds(store)
   const offsetX = existingBounds ? existingBounds.maxX + DIAGRAM_GAP : 0
   const offsetY = existingBounds ? existingBounds.minY : 0
-  const diagramId = `code-graph-${Date.now().toString(36)}`
+  const diagramId = `code-graph-${randomUUID()}`
   const workflow = codeGraphWorkflow(graph)
   const shapes = buildDiagramShapes(store, workflow, diagramId, offsetX, offsetY, codeGraphMetadata(graph, diagramId))
   store.put(shapes)
@@ -257,7 +312,7 @@ export function applyCodeGraphDrift(store: TLStore, drift: CodeGraphDriftResult)
 }
 
 export async function summarizeBoard(name = 'main', root?: string): Promise<BoardSummary> {
-  const store = await loadBoard(name, root)
+  const store = parseBoardFile(await readBoardFile(name, root), name)
   const shapes = getShapes(store)
   const shapesByType: Record<string, number> = {}
   const diagrams = new Map<

@@ -8,7 +8,10 @@ const excludedFiles = new Set([
   'assets/codex-tldraw-v0.3.0-demo.mov',
 ])
 const requiredFiles = [
+  '.agents/plugins/marketplace.json',
   '.codex-plugin/plugin.json',
+  'launcher.js',
+  'prepare.js',
   '.mcp.json',
   'CHANGELOG.md',
   'LICENSE',

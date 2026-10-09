@@ -4,12 +4,18 @@ import { z } from 'zod'
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { boardResourceUri } from './boardResource.js'
+import { withBoardLock } from './boardLock.js'
 import { appendArchitectureDiagram } from './architectureBoard.js'
 import { ARCHITECTURE_ANALYSIS_INSTRUCTIONS, buildArchitectureDiagram } from './architectureDiagram.js'
 import { compareCodeGraphs } from './codeGraphDrift.js'
 import { scanCodeGraph } from './codeGraphScanner.js'
 import {
   appendCodeGraphDiagram,
+  assertBoardLocation,
+  boardEtag,
+  parseBoardFile,
+  readBoardFile,
   appendWorkflowDiagram,
   applyCodeGraphDrift,
   listBoardNames,
@@ -37,7 +43,7 @@ const appHtmlPath = serverFilePath.endsWith('.ts')
 const repoPathInput = z
   .string()
   .optional()
-  .describe('Absolute or relative path to the repository. Defaults to the MCP server working directory.')
+  .describe('Path to the repository. Always pass the absolute project path when using the plugin; its working directory is the plugin installation, not the user repository. Standalone MCP calls default to the server working directory.')
 
 const diagramRepoInput = {
   repoPath: repoPathInput,
@@ -142,50 +148,54 @@ const drawArchitectureInput = {
 }
 
 export function createServer() {
-  let activeResourceRepoPath = workspaceRoot()
+  let activeResourceRepoPath: string | undefined = process.env.TLDRAW_MCP_PLUGIN_ROOT ? undefined : workspaceRoot()
 
-  async function resolveToolRepoPath(repoPath: string) {
+  async function resolveToolRepoPath(repoPath?: string) {
     const resolvedRepoPath = await resolveRepoPath(repoPath)
     activeResourceRepoPath = resolvedRepoPath
     return resolvedRepoPath
   }
 
   async function resolveResourceRepoPath() {
+    if (!activeResourceRepoPath) throw new Error('This legacy board link has no repository path. Run the diagram tool again to obtain a repository-scoped link.')
     return resolveRepoPath(activeResourceRepoPath)
   }
 
   async function appendWorkflowToBoard(workflow: ProductWorkflow, boardName: string, repoPath: string) {
-    const store = await loadBoard(boardName, repoPath)
-    const diagram = appendWorkflowDiagram(store, workflow)
-    const writtenPath = await saveBoard(boardName, store, repoPath)
-    const writtenSvgPath = svgPath(boardName, repoPath)
+    return withBoardLock(boardPath(boardName, repoPath), async () => {
+      const store = await loadBoard(boardName, repoPath)
+      const diagram = appendWorkflowDiagram(store, workflow)
+      const writtenPath = await saveBoard(boardName, store, repoPath)
+      const writtenSvgPath = svgPath(boardName, repoPath)
 
-    return {
-      diagram,
-      writtenPath,
-      writtenSvgPath,
-      result: {
-        boardName,
-        boardPath: writtenPath,
-        svgPath: writtenSvgPath,
-        repoPath,
-        diagramId: diagram.diagramId,
-        stepCount: workflow.steps.length,
-        connectionCount: workflow.connections.length,
-        shapeCount: diagram.shapeCount,
-        appended: diagram.appended,
-      },
-    }
+      return {
+        diagram,
+        writtenPath,
+        writtenSvgPath,
+        result: {
+          boardName,
+          boardPath: writtenPath,
+          svgPath: writtenSvgPath,
+          repoPath,
+          diagramId: diagram.diagramId,
+          stepCount: workflow.steps.length,
+          connectionCount: workflow.connections.length,
+          shapeCount: diagram.shapeCount,
+          appended: diagram.appended,
+        },
+      }
+    })
   }
 
   const server = new McpServer(
     {
       name: 'codex-tldraw-mcp',
-      version: '0.7.0',
+      version: '0.7.1',
     },
     {
       instructions: [
         'Use diagram_repo to infer a product workflow, draw_canvas for prompt-provided diagrams, draw_architecture for a simple component-and-call architecture view, diagram_code_graph for a trackable JavaScript or TypeScript module graph, and compare_code_graph to detect drift. Diagram tools append to tldraw .tldr boards instead of clearing the canvas.',
+        'When running as a plugin, always pass the absolute path of the user project as repoPath on every tool call. Obtain it from the chat workspace or inspect the requested local checkout. Never use the plugin installation directory as the repository. For a remote repository URL, first clone it to a local checkout. For runtime architecture, inspect source and use draw_architecture; diagram_repo only infers a coarse product workflow from text signals.',
         ARCHITECTURE_ANALYSIS_INSTRUCTIONS,
       ].join('\n\n'),
     }
@@ -236,6 +246,7 @@ export function createServer() {
         boardName: z.string().min(1),
         repoPath: repoPathInput,
         tldrJson: z.string().min(1),
+        ifMatch: z.string().optional().describe('ETag from the loaded board. Rejects saves when the file changed.'),
       },
       annotations: {
         readOnlyHint: false,
@@ -249,42 +260,31 @@ export function createServer() {
         },
       },
     },
-    async ({ boardName, repoPath, tldrJson }) => {
-      const resolvedRepoPath = await resolveToolRepoPath(repoPath ?? workspaceRoot())
+    async ({ boardName, repoPath, tldrJson, ifMatch }) => {
+      const resolvedRepoPath = await resolveToolRepoPath(repoPath)
       const normalizedBoardName = normalizeBoardName(boardName)
-      let parsed: unknown
-      try {
-        parsed = JSON.parse(tldrJson)
-      } catch {
-        throw new Error('tldrJson is not valid JSON.')
-      }
-      if (!parsed || typeof parsed !== 'object') {
-        throw new Error('tldrJson must be a tldraw file object.')
-      }
-
-      const filePath = boardPath(normalizedBoardName, resolvedRepoPath)
-      const tmpPath = `${filePath}.tmp`
-      const payload = tldrJson.endsWith('\n') ? tldrJson : `${tldrJson}\n`
-      await fs.writeFile(tmpPath, payload)
-      await fs.rename(tmpPath, filePath)
-
-      const store = await loadBoard(normalizedBoardName, resolvedRepoPath)
-      const writtenPath = await saveBoard(normalizedBoardName, store, resolvedRepoPath)
-
-      return {
-        structuredContent: {
-          boardName: normalizedBoardName,
-          boardPath: writtenPath,
-          svgPath: svgPath(normalizedBoardName, resolvedRepoPath),
-          repoPath: resolvedRepoPath,
-        },
-        content: [
-          {
-            type: 'text',
-            text: `Saved board "${normalizedBoardName}" to ${writtenPath}.`,
+      return withBoardLock(boardPath(normalizedBoardName, resolvedRepoPath), async () => {
+        // Validate in memory before touching either existing artifact.
+        const store = parseBoardFile(tldrJson, normalizedBoardName)
+        if (ifMatch) {
+          const current = await readBoardFile(normalizedBoardName, resolvedRepoPath)
+          if (boardEtag(current) !== ifMatch) {
+            throw new Error('File changed outside this editor. Reload before saving.')
+          }
+        }
+        const writtenPath = await saveBoard(normalizedBoardName, store, resolvedRepoPath)
+        return {
+          structuredContent: {
+            boardName: normalizedBoardName,
+            boardPath: writtenPath,
+            boardUri: boardResourceUri(resolvedRepoPath, normalizedBoardName),
+            svgPath: svgPath(normalizedBoardName, resolvedRepoPath),
+            repoPath: resolvedRepoPath,
+            etag: boardEtag(await readBoardFile(normalizedBoardName, resolvedRepoPath)),
           },
-        ],
-      }
+          content: [{ type: 'text', text: `Saved board "${normalizedBoardName}" to ${writtenPath}.` }],
+        }
+      })
     }
   )
 
@@ -335,38 +335,41 @@ export function createServer() {
       },
       ...DIAGRAM_TOOL_UI_META,
     },
-    async ({ repoPath = workspaceRoot(), boardName = 'main' }) => {
+    async ({ repoPath, boardName = 'main' }) => {
       const resolvedRepoPath = await resolveToolRepoPath(repoPath)
       const normalizedBoardName = normalizeBoardName(boardName)
-      const graph = await scanCodeGraph(resolvedRepoPath)
-      if (graph.nodes.length === 0) {
-        throw new Error('No supported JavaScript or TypeScript modules were found in the repository.')
-      }
-      const store = await loadBoard(normalizedBoardName, resolvedRepoPath)
-      const diagram = appendCodeGraphDiagram(store, graph)
-      const writtenPath = await saveBoard(normalizedBoardName, store, resolvedRepoPath)
-      const writtenSvgPath = svgPath(normalizedBoardName, resolvedRepoPath)
-      const result = {
-        boardName: normalizedBoardName,
-        boardPath: writtenPath,
-        svgPath: writtenSvgPath,
-        repoPath: resolvedRepoPath,
-        diagramId: diagram.diagramId,
-        nodeCount: graph.nodes.length,
-        edgeCount: graph.edges.length,
-        externalImportCount: graph.externalImportCount,
-        unresolvedImports: graph.unresolvedImports,
-        shapeCount: diagram.shapeCount,
-        appended: diagram.appended,
-      }
+      return withBoardLock(boardPath(normalizedBoardName, resolvedRepoPath), async () => {
+        const graph = await scanCodeGraph(resolvedRepoPath)
+        if (graph.nodes.length === 0) {
+          throw new Error('No supported JavaScript or TypeScript modules were found in the repository.')
+        }
+        const store = await loadBoard(normalizedBoardName, resolvedRepoPath)
+        const diagram = appendCodeGraphDiagram(store, graph)
+        const writtenPath = await saveBoard(normalizedBoardName, store, resolvedRepoPath)
+        const writtenSvgPath = svgPath(normalizedBoardName, resolvedRepoPath)
+        const result = {
+          boardName: normalizedBoardName,
+          boardPath: writtenPath,
+          svgPath: writtenSvgPath,
+          repoPath: resolvedRepoPath,
+          diagramId: diagram.diagramId,
+          nodeCount: graph.nodes.length,
+          edgeCount: graph.edges.length,
+          externalImportCount: graph.externalImportCount,
+          unresolvedImports: graph.unresolvedImports,
+          shapeCount: diagram.shapeCount,
+          appended: diagram.appended,
+        }
 
-      return {
-        structuredContent: result as unknown as Record<string, unknown>,
-        content: boardArtifactContent(
-          normalizedBoardName,
-          `Created a trackable code graph with ${graph.nodes.length} modules and ${graph.edges.length} local imports on board "${normalizedBoardName}". Files: ${writtenPath}, ${writtenSvgPath}`
-        ),
-      }
+        return {
+          structuredContent: result as unknown as Record<string, unknown>,
+          content: boardArtifactContent(
+            normalizedBoardName,
+            resolvedRepoPath,
+            `Created a trackable code graph with ${graph.nodes.length} modules and ${graph.edges.length} local imports on board "${normalizedBoardName}". Files: ${writtenPath}, ${writtenSvgPath}`
+          ),
+        }
+      })
     }
   )
 
@@ -385,44 +388,46 @@ export function createServer() {
       ...DIAGRAM_TOOL_UI_META,
     },
     async ({
-      repoPath = workspaceRoot(),
+      repoPath,
       boardName = 'main',
       diagramId,
       applyMarkers = false,
     }) => {
       const resolvedRepoPath = await resolveToolRepoPath(repoPath)
       const normalizedBoardName = normalizeBoardName(boardName)
-      const graph = await scanCodeGraph(resolvedRepoPath)
-      const store = await loadBoard(normalizedBoardName, resolvedRepoPath)
-      const stored = readStoredCodeGraph(store, diagramId)
-      const drift = compareCodeGraphs(stored, graph)
-      const updatedShapeCount = applyMarkers ? applyCodeGraphDrift(store, drift) : 0
-      const writtenPath = boardPath(normalizedBoardName, resolvedRepoPath)
-      if (applyMarkers && updatedShapeCount > 0) {
-        await saveBoard(normalizedBoardName, store, resolvedRepoPath)
-      }
-      const result = {
-        boardName: normalizedBoardName,
-        boardPath: writtenPath,
-        repoPath: resolvedRepoPath,
-        diagramId: drift.diagramId,
-        applied: applyMarkers,
-        updatedShapeCount,
-        counts: drift.counts,
-        elements: drift.elements,
-        externalImportCount: graph.externalImportCount,
-        unresolvedImports: graph.unresolvedImports,
-      }
+      return withBoardLock(boardPath(normalizedBoardName, resolvedRepoPath), async () => {
+        const graph = await scanCodeGraph(resolvedRepoPath)
+        const store = await loadBoard(normalizedBoardName, resolvedRepoPath)
+        const stored = readStoredCodeGraph(store, diagramId)
+        const drift = compareCodeGraphs(stored, graph)
+        const updatedShapeCount = applyMarkers ? applyCodeGraphDrift(store, drift) : 0
+        const writtenPath = boardPath(normalizedBoardName, resolvedRepoPath)
+        if (applyMarkers && updatedShapeCount > 0) {
+          await saveBoard(normalizedBoardName, store, resolvedRepoPath)
+        }
+        const result = {
+          boardName: normalizedBoardName,
+          boardPath: writtenPath,
+          repoPath: resolvedRepoPath,
+          diagramId: drift.diagramId,
+          applied: applyMarkers,
+          updatedShapeCount,
+          counts: drift.counts,
+          elements: drift.elements,
+          externalImportCount: graph.externalImportCount,
+          unresolvedImports: graph.unresolvedImports,
+        }
 
-      return {
-        structuredContent: result as unknown as Record<string, unknown>,
-        content: [
-          {
-            type: 'text',
-            text: `${applyMarkers ? 'Applied' : 'Previewed'} code graph drift for "${normalizedBoardName}": ${drift.counts.stale} stale, ${drift.counts.changed} changed, ${drift.counts.new} new, and ${drift.counts.unchanged} unchanged elements.`,
-          },
-        ],
-      }
+        return {
+          structuredContent: result as unknown as Record<string, unknown>,
+          content: [
+            {
+              type: 'text',
+              text: `${applyMarkers ? 'Applied' : 'Previewed'} code graph drift for "${normalizedBoardName}": ${drift.counts.stale} stale, ${drift.counts.changed} changed, ${drift.counts.new} new, and ${drift.counts.unchanged} unchanged elements.`,
+            },
+          ],
+        }
+      })
     }
   )
 
@@ -440,7 +445,7 @@ export function createServer() {
       },
       ...DIAGRAM_TOOL_UI_META,
     },
-    async ({ repoPath = workspaceRoot(), boardName = 'main' }) => {
+    async ({ repoPath, boardName = 'main' }) => {
       const resolvedRepoPath = await resolveToolRepoPath(repoPath)
       const normalizedBoardName = normalizeBoardName(boardName)
       const workflow = await scanRepo(resolvedRepoPath)
@@ -454,6 +459,7 @@ export function createServer() {
         structuredContent: result as unknown as Record<string, unknown>,
         content: boardArtifactContent(
           normalizedBoardName,
+          resolvedRepoPath,
           `Created ${diagram.appended ? 'a new appended' : 'an initial'} tldraw product workflow diagram for ${workflow.repoName} on board "${normalizedBoardName}". Files: ${writtenPath}, ${writtenSvgPath}`
         ),
       }
@@ -474,7 +480,7 @@ export function createServer() {
       },
       ...DIAGRAM_TOOL_UI_META,
     },
-    async ({ repoPath = workspaceRoot(), boardName = 'main', title, steps, connections }) => {
+    async ({ repoPath, boardName = 'main', title, steps, connections }) => {
       const resolvedRepoPath = await resolveToolRepoPath(repoPath)
       const normalizedBoardName = normalizeBoardName(boardName)
       const workflow = buildPromptWorkflow(title, resolvedRepoPath, steps, connections)
@@ -488,6 +494,7 @@ export function createServer() {
         structuredContent: result as unknown as Record<string, unknown>,
         content: boardArtifactContent(
           normalizedBoardName,
+          resolvedRepoPath,
           `Created ${diagram.appended ? 'a new appended' : 'an initial'} tldraw diagram "${workflow.repoName}" on board "${normalizedBoardName}". Files: ${writtenPath}, ${writtenSvgPath}`
         ),
       }
@@ -509,7 +516,7 @@ export function createServer() {
       ...DIAGRAM_TOOL_UI_META,
     },
     async ({
-      repoPath = workspaceRoot(),
+      repoPath,
       boardName = 'main',
       title,
       components,
@@ -518,31 +525,34 @@ export function createServer() {
     }) => {
       const resolvedRepoPath = await resolveToolRepoPath(repoPath)
       const normalizedBoardName = normalizeBoardName(boardName)
-      const architecture = buildArchitectureDiagram(title, resolvedRepoPath, components, primaryFlow, connections)
-      const store = await loadBoard(normalizedBoardName, resolvedRepoPath)
-      const diagram = appendArchitectureDiagram(store, architecture)
-      const writtenPath = await saveBoard(normalizedBoardName, store, resolvedRepoPath)
-      const writtenSvgPath = svgPath(normalizedBoardName, resolvedRepoPath)
-      const result = {
-        boardName: normalizedBoardName,
-        boardPath: writtenPath,
-        svgPath: writtenSvgPath,
-        repoPath: resolvedRepoPath,
-        diagramId: diagram.diagramId,
-        componentCount: architecture.components.length,
-        connectionCount: architecture.connections.length,
-        shapeCount: diagram.shapeCount,
-        bindingCount: diagram.bindingCount,
-        appended: diagram.appended,
-      }
+      return withBoardLock(boardPath(normalizedBoardName, resolvedRepoPath), async () => {
+        const architecture = buildArchitectureDiagram(title, resolvedRepoPath, components, primaryFlow, connections)
+        const store = await loadBoard(normalizedBoardName, resolvedRepoPath)
+        const diagram = appendArchitectureDiagram(store, architecture)
+        const writtenPath = await saveBoard(normalizedBoardName, store, resolvedRepoPath)
+        const writtenSvgPath = svgPath(normalizedBoardName, resolvedRepoPath)
+        const result = {
+          boardName: normalizedBoardName,
+          boardPath: writtenPath,
+          svgPath: writtenSvgPath,
+          repoPath: resolvedRepoPath,
+          diagramId: diagram.diagramId,
+          componentCount: architecture.components.length,
+          connectionCount: architecture.connections.length,
+          shapeCount: diagram.shapeCount,
+          bindingCount: diagram.bindingCount,
+          appended: diagram.appended,
+        }
 
-      return {
-        structuredContent: result as unknown as Record<string, unknown>,
-        content: boardArtifactContent(
-          normalizedBoardName,
-          `Created ${diagram.appended ? 'an appended' : 'an initial'} architecture diagram "${architecture.title}" with ${architecture.components.length} components and ${architecture.connections.length} connections on board "${normalizedBoardName}". Files: ${writtenPath}, ${writtenSvgPath}`
-        ),
-      }
+        return {
+          structuredContent: result as unknown as Record<string, unknown>,
+          content: boardArtifactContent(
+            normalizedBoardName,
+            resolvedRepoPath,
+            `Created ${diagram.appended ? 'an appended' : 'an initial'} architecture diagram "${architecture.title}" with ${architecture.components.length} components and ${architecture.connections.length} connections on board "${normalizedBoardName}". Files: ${writtenPath}, ${writtenSvgPath}`
+          ),
+        }
+      })
     }
   )
 
@@ -560,7 +570,7 @@ export function createServer() {
         idempotentHint: true,
       },
     },
-    async ({ repoPath = workspaceRoot() }) => {
+    async ({ repoPath }) => {
       const resolvedRepoPath = await resolveToolRepoPath(repoPath)
       const boards = await listBoardNames(resolvedRepoPath)
       return {
@@ -588,7 +598,7 @@ export function createServer() {
         idempotentHint: true,
       },
     },
-    async ({ repoPath = workspaceRoot(), boardName = 'main' }) => {
+    async ({ repoPath, boardName = 'main' }) => {
       const resolvedRepoPath = await resolveToolRepoPath(repoPath)
       const normalizedBoardName = normalizeBoardName(boardName)
       const summary = await summarizeBoard(normalizedBoardName, resolvedRepoPath)
@@ -603,12 +613,13 @@ export function createServer() {
     'board-summary',
     new ResourceTemplate('tldraw://boards/{name}/summary', {
       list: async () => {
+        if (!activeResourceRepoPath) return { resources: [] }
         const repoPath = await resolveResourceRepoPath()
         const boards = await listBoardNames(repoPath)
         return {
           resources: boards.map((name) => ({
             name: `${name} summary`,
-            uri: `tldraw://boards/${name}/summary`,
+            uri: boardResourceUri(repoPath, name, 'summary'),
             mimeType: 'application/json',
           })),
         }
@@ -626,7 +637,7 @@ export function createServer() {
       return {
         contents: [
           {
-            uri: `tldraw://boards/${name}/summary`,
+            uri: _uri.href,
             mimeType: 'application/json',
             text: JSON.stringify(summary, null, 2),
           },
@@ -639,12 +650,13 @@ export function createServer() {
     'board-file',
     new ResourceTemplate('tldraw://boards/{name}/file', {
       list: async () => {
+        if (!activeResourceRepoPath) return { resources: [] }
         const repoPath = await resolveResourceRepoPath()
         const boards = await listBoardNames(repoPath)
         return {
           resources: boards.map((name) => ({
             name: `${name} tldraw file`,
-            uri: `tldraw://boards/${name}/file`,
+            uri: boardResourceUri(repoPath, name),
             mimeType: 'application/vnd.tldraw+json',
           })),
         }
@@ -661,9 +673,9 @@ export function createServer() {
       return {
         contents: [
           {
-            uri: `tldraw://boards/${name}/file`,
+            uri: _uri.href,
             mimeType: 'application/vnd.tldraw+json',
-            text: await fs.readFile(boardPath(name, repoPath), 'utf8'),
+            text: await readBoardFile(name, repoPath),
           },
         ],
       }
@@ -674,12 +686,13 @@ export function createServer() {
     'board-svg',
     new ResourceTemplate('tldraw://boards/{name}/svg', {
       list: async () => {
+        if (!activeResourceRepoPath) return { resources: [] }
         const repoPath = await resolveResourceRepoPath()
         const boards = await listBoardNames(repoPath)
         return {
           resources: boards.map((name) => ({
             name: `${name} SVG preview`,
-            uri: `tldraw://boards/${name}/svg`,
+            uri: boardResourceUri(repoPath, name, 'svg'),
             mimeType: 'image/svg+xml',
           })),
         }
@@ -693,10 +706,11 @@ export function createServer() {
     async (_uri, variables) => {
       const repoPath = await resolveResourceRepoPath()
       const name = normalizeBoardName(String(variables.name))
+      await assertBoardLocation(svgPath(name, repoPath), repoPath)
       return {
         contents: [
           {
-            uri: `tldraw://boards/${name}/svg`,
+            uri: _uri.href,
             mimeType: 'image/svg+xml',
             text: await fs.readFile(svgPath(name, repoPath), 'utf8'),
           },
@@ -705,35 +719,72 @@ export function createServer() {
     }
   )
 
+  for (const kind of ['file', 'svg', 'summary'] as const) {
+    const mimeType = kind === 'file' ? 'application/vnd.tldraw+json' : kind === 'svg' ? 'image/svg+xml' : 'application/json'
+    server.registerResource(
+      `repo-board-${kind}`,
+      new ResourceTemplate(`tldraw://repos/{repo}/boards/{name}/${kind}`, { list: undefined }),
+      { title: `Repository board ${kind}`, mimeType },
+      async (uri, variables) => {
+        const repoPath = await resolveRepoPath(decodeURIComponent(String(variables.repo)))
+        const name = normalizeBoardName(decodeURIComponent(String(variables.name)))
+        let text: string
+        if (kind === 'summary') text = JSON.stringify(await summarizeBoard(name, repoPath), null, 2)
+        else if (kind === 'file') text = await readBoardFile(name, repoPath)
+        else {
+          await assertBoardLocation(svgPath(name, repoPath), repoPath)
+          text = await fs.readFile(svgPath(name, repoPath), 'utf8')
+        }
+        return { contents: [{ uri: uri.href, mimeType, text, _meta: { etag: boardEtag(text) } }] }
+      }
+    )
+  }
+
   return server
 }
 
-function boardArtifactContent(boardName: string, message: string) {
+function boardArtifactContent(boardName: string, repoPath: string, message: string) {
   return [
     { type: 'text' as const, text: message },
     {
       type: 'resource_link' as const,
       name: `${boardName}.tldr`,
-      uri: `tldraw://boards/${boardName}/file`,
+      uri: boardResourceUri(repoPath, boardName),
       mimeType: 'application/vnd.tldraw+json',
     },
     {
       type: 'resource_link' as const,
       name: `${boardName}.svg`,
-      uri: `tldraw://boards/${boardName}/svg`,
+      uri: boardResourceUri(repoPath, boardName, 'svg'),
       mimeType: 'image/svg+xml',
     },
   ]
 }
 
-async function resolveRepoPath(repoPath: string) {
-  const resolvedRepoPath = path.resolve(workspaceRoot(), repoPath)
+async function resolveRepoPath(repoPath?: string) {
+  if (process.env.TLDRAW_MCP_PLUGIN_ROOT && !repoPath) {
+    throw new Error('repoPath is required for plugin tools. Pass the absolute path of the user repository from the chat workspace.')
+  }
+  if (process.env.TLDRAW_MCP_PLUGIN_ROOT && repoPath && !path.isAbsolute(repoPath)) {
+    throw new Error('Plugin tools require an absolute repoPath; relative paths resolve from the plugin installation, not the user repository.')
+  }
+  const resolvedRepoPath = path.resolve(workspaceRoot(), repoPath ?? workspaceRoot())
   const realRepoPath = await fs.realpath(resolvedRepoPath)
+  const pluginRoot = process.env.TLDRAW_MCP_PLUGIN_ROOT
+  if (pluginRoot && realRepoPath === await fs.realpath(pluginRoot)) {
+    throw new Error('repoPath points to the plugin installation. Pass the absolute path of the user repository from the chat workspace. For a remote URL, clone the repository first.')
+  }
+  if (!(await fs.stat(realRepoPath)).isDirectory()) {
+    throw new Error(`Repo path is not a directory: ${realRepoPath}`)
+  }
   const allowedRoots = await allowedRootPaths()
 
   if (
     allowedRoots.length > 0 &&
-    !allowedRoots.some((root) => realRepoPath === root || realRepoPath.startsWith(`${root}${path.sep}`))
+    !allowedRoots.some((root) => {
+      const relative = path.relative(root, realRepoPath)
+      return relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative)
+    })
   ) {
     throw new Error(
       `Repo path is outside TLDRAW_MCP_ALLOWED_ROOTS: ${realRepoPath}. Set TLDRAW_MCP_ALLOWED_ROOTS to allow this directory.`
