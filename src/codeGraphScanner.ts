@@ -19,9 +19,9 @@ export async function scanCodeGraph(repoPath: string): Promise<CodeGraph> {
   const stat = await fs.stat(root)
   if (!stat.isDirectory()) throw new Error(`Repo path is not a directory: ${root}`)
 
-  const repoFiles = await scanRepoFiles(root, MAX_REPO_FILES)
+  const repoFiles = await scanRepoFiles(root, MAX_REPO_FILES, isCodeFile)
   if (repoFiles.truncated) {
-    throw new Error(`Code graph scan stopped because the repository contains more than ${MAX_REPO_FILES} files.`)
+    throw new Error(`Code graph scan stopped because the repository contains more than ${MAX_REPO_FILES} supported JavaScript or TypeScript modules.`)
   }
   const files = repoFiles.files.filter(isCodeFile).map(normalizePath).sort()
 

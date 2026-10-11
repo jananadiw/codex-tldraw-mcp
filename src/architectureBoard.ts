@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import {
   createBindingId,
   createShapeId,
@@ -31,7 +32,7 @@ export function appendArchitectureDiagram(store: TLStore, diagram: ArchitectureD
   const existingBounds = getShapeBounds(store)
   const offsetX = existingBounds ? existingBounds.maxX + DIAGRAM_GAP : 0
   const offsetY = existingBounds ? existingBounds.minY : 0
-  const diagramId = `architecture-${Date.now().toString(36)}`
+  const diagramId = `architecture-${randomUUID()}`
   const records = buildArchitectureRecords(store, diagram, diagramId, offsetX, offsetY)
   store.put(records)
   return {

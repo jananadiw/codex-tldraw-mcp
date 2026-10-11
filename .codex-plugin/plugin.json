@@ -1,6 +1,6 @@
 {
   "name": "codex-tldraw",
-  "version": "0.7.0",
+  "version": "0.7.1",
   "description": "Generate, inspect, and edit repo-local tldraw diagrams in Codex.",
   "author": {
     "name": "jananadiw"

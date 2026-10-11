@@ -1,6 +1,6 @@
 import fs from 'node:fs/promises'
 import path from 'node:path'
-import { walkRepo } from './repoFiles.js'
+import { scanRepoFiles } from './repoFiles.js'
 import { buildSequentialConnections } from './workflow.js'
 import type { ProductWorkflow, WorkflowStep } from './types.js'
 
@@ -27,9 +27,9 @@ export async function scanRepo(repoPath: string): Promise<ProductWorkflow> {
   const stat = await fs.stat(root)
   if (!stat.isDirectory()) throw new Error(`Repo path is not a directory: ${root}`)
 
-  const files = await walkRepo(root)
+  const { files } = await scanRepoFiles(root, 500, (file) => isTextFile(file) && !file.startsWith(`boards${path.sep}`))
   const packageJson = await readPackageJson(root)
-  const repoName = packageJson?.name ?? path.basename(root)
+  const repoName = typeof packageJson?.name === 'string' && packageJson.name.trim() ? packageJson.name : path.basename(root)
   const sourceText = await readSearchableText(root, files, packageJson)
   const steps = buildWorkflowSteps(repoName, sourceText)
   const connections = buildSequentialConnections(steps)
@@ -68,11 +68,17 @@ async function readSearchableText(
     Object.keys(packageJson?.devDependencies ?? {}).join(' '),
   ].filter(Boolean)
 
-  const textFiles = files.filter(isTextFile).slice(0, MAX_TEXT_FILES)
+  const textFiles = files.sort((a, b) => Number(!/^readme\./i.test(a)) - Number(!/^readme\./i.test(b))).slice(0, MAX_TEXT_FILES)
   for (const file of textFiles) {
     try {
-      const contents = await fs.readFile(path.join(root, file), 'utf8')
-      parts.push(file, contents.slice(0, MAX_TEXT_BYTES))
+      const handle = await fs.open(path.join(root, file), 'r')
+      try {
+        const buffer = Buffer.alloc(MAX_TEXT_BYTES)
+        const { bytesRead } = await handle.read(buffer, 0, buffer.length, 0)
+        parts.push(file, buffer.subarray(0, bytesRead).toString('utf8'))
+      } finally {
+        await handle.close()
+      }
     } catch {
       parts.push(file)
     }
@@ -82,7 +88,7 @@ async function readSearchableText(
 }
 
 function isTextFile(file: string) {
-  return TEXT_EXTENSIONS.has(path.extname(file))
+  return TEXT_EXTENSIONS.has(path.extname(file).toLowerCase())
 }
 
 function buildWorkflowSteps(repoName: string, sourceText: string): WorkflowStep[] {
@@ -139,7 +145,10 @@ function detectSignals(repoName: string, sourceText: string) {
 }
 
 function hasAny(haystack: string, needles: string[]) {
-  return needles.some((needle) => haystack.includes(needle))
+  return needles.some((needle) => {
+    const escaped = needle.replace(/[.*+?^$()|[\]{}\\]/g, '\\$&')
+    return new RegExp(`(^|[^a-z0-9])${escaped}(?=$|[^a-z0-9])`).test(haystack)
+  })
 }
 
 function step(id: string, label: string, evidence: string[], detail?: string): WorkflowStep {

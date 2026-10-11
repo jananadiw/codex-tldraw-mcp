@@ -1,43 +1,44 @@
 #!/usr/bin/env node
 import { existsSync, readFileSync } from 'node:fs'
 import { spawn } from 'node:child_process'
-import { fileURLToPath } from 'node:url'
+import { createRequire } from 'node:module'
+import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
-import { homedir } from 'node:os'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 
-const __dirname = dirname(fileURLToPath(import.meta.url))
-const distIndex = join(__dirname, 'dist', 'index.js')
+const pluginRoot = dirname(fileURLToPath(import.meta.url))
+process.env.TLDRAW_MCP_PLUGIN_ROOT = pluginRoot
+const entry = join(pluginRoot, 'dist/index.js')
+const require = createRequire(import.meta.url)
+let localBuildReady = existsSync(entry) && existsSync(join(pluginRoot, 'dist/app.html'))
+try {
+  require.resolve('@modelcontextprotocol/sdk/server/stdio.js')
+  require.resolve('@modelcontextprotocol/ext-apps/server')
+  require.resolve('typescript')
+  require.resolve('zod')
+  require.resolve('tldraw')
+  require.resolve('proper-lockfile')
+} catch {
+  localBuildReady = false
+}
 
-if (existsSync(distIndex)) {
-  const { default: main } = await import(distIndex)
-  if (typeof main === 'function') {
-    await main()
-  }
+if (localBuildReady) {
+  await import(pathToFileURL(entry).href)
 } else {
-  const packageJson = JSON.parse(readFileSync(join(__dirname, 'package.json'), 'utf8'))
-  const packageSpec = `${packageJson.name}@${packageJson.version}`
-  
-  process.stderr.write(`dist/ not found, falling back to published package: ${packageSpec}\n`)
-  
-  const npx = spawn('npx', ['-y', packageSpec], {
-    cwd: homedir(),
+  const { name, version } = JSON.parse(readFileSync(join(pluginRoot, 'package.json'), 'utf8'))
+  const packageSpec = `${name}@${version}`
+  process.stderr.write(`Using published ${packageSpec}; the plugin has no runnable local build.\n`)
+  const args = ['-y', '--package', packageSpec, 'codex-tldraw-mcp']
+  const child = spawn(process.platform === 'win32' ? 'cmd.exe' : 'npx', process.platform === 'win32' ? ['/d', '/s', '/c', 'npx', ...args] : args, {
+    cwd: tmpdir(),
     stdio: 'inherit',
     env: process.env,
   })
-  
-  process.on('SIGTERM', () => npx.kill('SIGTERM'))
-  process.on('SIGINT', () => npx.kill('SIGINT'))
-  
-  npx.on('exit', (code, signal) => {
-    if (signal) {
-      process.kill(process.pid, signal)
-    } else {
-      process.exit(code ?? 1)
-    }
-  })
-  
-  npx.on('error', (err) => {
-    process.stderr.write(`Failed to run ${packageSpec}: ${err.message}\n`)
+  process.on('SIGTERM', () => child.kill('SIGTERM'))
+  process.on('SIGINT', () => child.kill('SIGINT'))
+  child.on('error', (error) => {
+    process.stderr.write(`Cannot start ${packageSpec}: ${error.message}. Install Node.js and npm, then retry.\n`)
     process.exit(1)
   })
+  child.on('exit', (code) => process.exit(code ?? 1))
 }

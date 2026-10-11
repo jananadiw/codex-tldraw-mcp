@@ -18,7 +18,7 @@ export async function walkRepo(root: string, maxFiles = DEFAULT_MAX_FILES) {
   return (await scanRepoFiles(root, maxFiles)).files
 }
 
-export async function scanRepoFiles(root: string, maxFiles = DEFAULT_MAX_FILES) {
+export async function scanRepoFiles(root: string, maxFiles = DEFAULT_MAX_FILES, includeFile: (file: string) => boolean = () => true) {
   const results: string[] = []
 
   async function visit(dir: string) {
@@ -33,7 +33,7 @@ export async function scanRepoFiles(root: string, maxFiles = DEFAULT_MAX_FILES) 
       const relativePath = path.relative(root, fullPath)
       if (entry.isDirectory()) {
         if (!IGNORE_DIRS.has(entry.name)) await visit(fullPath)
-      } else if (entry.isFile()) {
+      } else if (entry.isFile() && includeFile(relativePath)) {
         results.push(relativePath)
       }
     }

@@ -1,6 +1,19 @@
 # Changelog
 
-## Unreleased
+## 0.7.1
+
+- Fixed editor loading after server restarts and repository switches by including repository identity in board resource links.
+- Validated editor saves before writing, added ETag conflict checks and reload recovery, and preserved edits made while saving.
+- Serialized board mutations across server processes and replaced colliding timestamp ids and fixed temporary filenames with UUIDs.
+- Prevented board symlinks from escaping the target repository.
+- Fixed asset-heavy repository scans, bounded workflow text reads, and stopped `main` from being mistaken for an AI signal.
+- Added regressions for resource routing, malformed saves, competing saves, simultaneous appends, and scanner limits.
+
+- Pinned tldraw to the version used by the bundled editor, fixing diagram creation failures in fresh npm installs.
+- Added a Node launcher for source-only plugin downloads, with a fallback to the matching published npm version.
+- Included the marketplace descriptor and launcher in npm packages, and removed Bun from build and prepare commands.
+- Required absolute user repository paths for plugin tools to prevent output in the plugin cache; standalone MCP defaults remain available.
+- Added isolated npm tarball installation and plugin startup checks to CI and release validation.
 
 ## 0.7.0
 
