@@ -14,10 +14,6 @@ const IGNORE_DIRS = new Set([
   '.turbo',
 ])
 
-export async function walkRepo(root: string, maxFiles = DEFAULT_MAX_FILES) {
-  return (await scanRepoFiles(root, maxFiles)).files
-}
-
 export async function scanRepoFiles(root: string, maxFiles = DEFAULT_MAX_FILES, includeFile: (file: string) => boolean = () => true) {
   const results: string[] = []
 
