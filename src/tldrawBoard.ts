@@ -98,7 +98,6 @@ export async function listBoardNames(root?: string) {
 }
 
 export async function loadBoard(name = 'main', root?: string) {
-  const filePath = boardPath(name, root)
   try {
     return parseBoardFile(await readBoardFile(name, root), name)
   } catch (error) {
