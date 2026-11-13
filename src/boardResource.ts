@@ -1,4 +1,4 @@
-export type BoardResourceKind = 'file' | 'svg' | 'summary'
+type BoardResourceKind = 'file' | 'svg' | 'summary'
 
 export function boardResourceUri(repoPath: string, boardName: string, kind: BoardResourceKind = 'file') {
   return `tldraw://repos/${encodeURIComponent(repoPath)}/boards/${encodeURIComponent(boardName)}/${kind}`
